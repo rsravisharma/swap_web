@@ -5,6 +5,8 @@ namespace Database\Seeders;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use App\Models\UserPreference;
+use App\Models\User;
+use Illuminate\Support\Facades\Hash;
 
 class UserPreferenceSeeder extends Seeder
 {
@@ -13,10 +15,27 @@ class UserPreferenceSeeder extends Seeder
      */
     public function run(): void
     {
-         // Default preferences for testing (optional)
+        // ✅ Check if any users exist
+        $userCount = User::count();
+
+        if ($userCount === 0) {
+            $this->command->info('No users found. Creating a test user first...');
+
+            $user = User::create([
+                'name' => 'Test User',
+                'email' => 'test@example.com',
+                'password' => Hash::make('password123'),
+                'email_verified_at' => now(),
+            ]);
+        } else {
+            // Use the first existing user
+            $user = User::first();
+            $this->command->info("Using existing user: {$user->email}");
+        }
+        // Default preferences for testing (optional)
         $defaultPreferences = [
             [
-                'user_id' => 1,
+                'user_id' => $user->id,
                 'key' => 'notification_settings',
                 'value' => [
                     'push_notifications' => true,
