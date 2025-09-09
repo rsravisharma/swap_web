@@ -28,12 +28,8 @@ class AuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
+            'email' => 'required|string|email|max:255',
             'password' => 'required|string|min:8|confirmed',
-            // 'phone' => 'nullable|string|max:20',
-            // 'university' => 'nullable|string|max:255',
-            // 'course' => 'nullable|string|max:255',
-            // 'semester' => 'nullable|string|max:50',
         ]);
 
         if ($validator->fails()) {
@@ -45,6 +41,29 @@ class AuthController extends Controller
         }
 
         try {
+            // Check if email exists
+            $existingUser = User::where('email', $request->email)->first();
+
+            if ($existingUser) {
+                // If user exists and is verified (either email or has google_id), return error
+                if ($existingUser->email_verified_at !== null || $existingUser->google_id !== null) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Email is already registered and verified',
+                        'errors' => ['email' => ['The email has already been taken.']]
+                    ], 422);
+                }
+
+                // If user exists but is not verified and has no google_id, delete the old record
+                if ($existingUser->email_verified_at === null && $existingUser->google_id === null) {
+                    // Clean up related verification codes
+                    EmailVerificationCode::where('user_id', $existingUser->id)->delete();
+                    // Delete the unverified user record
+                    $existingUser->delete();
+                }
+            }
+
+            // Create new user
             $user = User::create([
                 'name' => $request->name,
                 'email' => $request->email,
@@ -111,6 +130,120 @@ class AuthController extends Controller
         );
 
         $user->notify(new EmailVerificationCodeNotification($otp, $verificationUrl));
+    }
+
+    public function verifyOtp(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'otp' => 'required|string|size:6',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $user = User::where('email', $request->email)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found'
+                ], 404);
+            }
+
+            $verificationCode = EmailVerificationCode::where('user_id', $user->id)
+                ->where('code', $request->otp)
+                ->where('used', false)
+                ->where('expires_at', '>', now())
+                ->first();
+
+            if (!$verificationCode) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid or expired OTP'
+                ], 400);
+            }
+
+            // Mark OTP as used
+            $verificationCode->update(['used' => true]);
+
+            // Verify user email
+            $user->update(['email_verified_at' => now()]);
+
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Email verified successfully',
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                    'is_verified' => true,
+                ],
+                'token' => $token
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification failed',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function resendOtp(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $user = User::where('email', $request->email)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found'
+                ], 404);
+            }
+
+            if ($user->email_verified_at) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Email is already verified'
+                ], 400);
+            }
+
+            // Send new OTP
+            $this->sendVerificationOtp($user);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'New OTP sent successfully'
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to resend OTP',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
