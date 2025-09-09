@@ -93,9 +93,11 @@ class AuthController extends Controller
                     'course' => $user->course,
                     'semester' => $user->semester,
                     'is_verified' => $user->email_verified_at !== null,
+                    'email_verified_at' => $user->email_verified_at, 
                     'student_verified' => $user->student_verified ?? false,
                 ],
-                'token' => $token
+                'token' => $token,
+                'requires_verification' => $user->email_verified_at === null, 
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
