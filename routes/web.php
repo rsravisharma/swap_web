@@ -175,3 +175,12 @@ Route::post('/agreeTermsAndCondition', 'SupportController@agreeTermsAndCondition
 Route::post('/reportIssue', 'SupportController@reportIssue');
 Route::get('/faq', 'SupportController@faq');
 Route::post('/contactUs', 'SupportController@contactUs');
+
+Route::get('/clear-cache', function () {
+    Artisan::call('config:clear');
+    Artisan::call('cache:clear');
+    Artisan::call('route:clear');
+    Artisan::call('view:clear');
+    Artisan::call('optimize');
+    return "Cache cleared!";
+});
