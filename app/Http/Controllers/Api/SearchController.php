@@ -841,7 +841,6 @@ class SearchController extends Controller
             // Get suggested users (exclude current user and already followed users)
             $suggestedUsers = User::where('id', '!=', $user->id)
                 ->whereNotIn('id', function ($query) use ($user) {
-                    // Assuming you have a followers/following relationship
                     $query->select('following_id')
                         ->from('user_followers')
                         ->where('follower_id', $user->id);
@@ -849,8 +848,18 @@ class SearchController extends Controller
                 ->where('is_active', true)
                 ->orderBy('created_at', 'desc')
                 ->limit(20)
-                ->select(['id', 'name', 'email', 'avatar', 'created_at'])
-                ->get();
+                ->select(['id', 'name', 'email', 'profile_image', 'created_at'])
+                ->get()
+                ->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'avatar' => $user->profile_image, 
+                        'created_at' => $user->created_at,
+                    ];
+                });
+
 
             return response()->json([
                 'success' => true,
