@@ -13,7 +13,7 @@ class Product extends Model
         'user_id',
         'title',
         'description',
-        'category',
+        'category_id',
         'condition',
         'price',
         'status',
@@ -23,7 +23,13 @@ class Product extends Model
 
     protected $casts = [
         'price' => 'decimal:2',
+        'status' => 'string',
     ];
+
+     public function category()
+    {
+        return $this->belongsTo(Category::class);
+    }
 
     public function user()
     {
