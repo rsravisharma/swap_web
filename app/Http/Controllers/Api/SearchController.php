@@ -12,7 +12,6 @@ use App\Models\TrendingSearch;
 use App\Models\QuickSuggestion;
 use App\Models\Location;
 use App\Models\University;
-use App\Models\UserSearchHistory;
 use App\Models\Favorite;
 use App\Models\UserFollow;
 use Illuminate\Http\Request;
@@ -21,7 +20,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
-use App\Models\TrendingSearch;
 
 class SearchController extends Controller
 {

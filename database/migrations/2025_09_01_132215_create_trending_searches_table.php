@@ -13,11 +13,16 @@ return new class extends Migration
     {
         Schema::create('trending_searches', function (Blueprint $table) {
             $table->id();
-            $table->string('term')->unique();
-            $table->integer('hits')->default(0);
+            $table->string('term', 255);
+            $table->integer('hits')->default(1);
+            $table->date('search_date')->default(now()->toDateString());
             $table->timestamps();
-            
-            $table->index(['hits', 'updated_at']);
+
+            // Indexes for performance
+            $table->unique(['term', 'search_date']); // Prevent duplicate terms per day
+            $table->index(['hits', 'search_date']);
+            $table->index('search_date');
+            $table->index('term');
         });
     }
 
