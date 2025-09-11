@@ -42,10 +42,55 @@ class AuthController extends Controller
 
     public function register(Request $request): JsonResponse
     {
+        // Dynamic validation rules based on verification status
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255',
+            'email' => [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                function ($attribute, $value, $fail) {
+                    // Check if email exists and is verified
+                    $existingUser = User::where('email', $value)
+                        ->where(function ($query) {
+                            $query->whereNotNull('email_verified_at')
+                                ->orWhereNotNull('google_id');
+                        })
+                        ->first();
+
+                    if ($existingUser) {
+                        $fail('The email has already been taken by a verified user.');
+                    }
+                },
+            ],
             'password' => 'required|string|min:8|confirmed',
+            'phone' => [
+                'nullable',
+                'string',
+                'max:20',
+                function ($attribute, $value, $fail) use ($request) {
+                    if (empty($value)) {
+                        return; // Skip validation if phone is empty
+                    }
+
+                    // Check if phone exists and is verified (excluding current email if updating)
+                    $existingUser = User::where('phone', $value)
+                        ->where('email', '!=', $request->email) // Allow same user to update
+                        ->where(function ($query) {
+                            $query->whereNotNull('email_verified_at')
+                                ->orWhereNotNull('google_id');
+                        })
+                        ->first();
+
+                    if ($existingUser) {
+                        $fail('The phone number has already been taken by a verified user.');
+                    }
+                },
+            ],
+            'university' => 'nullable|string|max:255',
+            'course' => 'nullable|string|max:255',
+            'semester' => 'nullable|string|max:50',
         ]);
 
         if ($validator->fails()) {
@@ -57,26 +102,27 @@ class AuthController extends Controller
         }
 
         try {
-            // Check if email exists
-            $existingUser = User::where('email', $request->email)->first();
+            // Check if unverified user exists with same email OR phone
+            $existingUser = User::where(function ($query) use ($request) {
+                $query->where('email', $request->email);
+
+                // Also check phone if provided
+                if (!empty($request->phone)) {
+                    $query->orWhere('phone', $request->phone);
+                }
+            })
+                ->where('email_verified_at', null)
+                ->where('google_id', null)
+                ->first();
 
             if ($existingUser) {
-                // If user exists and is verified (either email or has google_id), return error
-                if ($existingUser->email_verified_at !== null || $existingUser->google_id !== null) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Email is already registered and verified',
-                        'errors' => ['email' => ['The email has already been taken.']]
-                    ], 422);
-                }
+                // Clean up related verification codes
+                EmailVerificationCode::where('user_id', $existingUser->id)->delete();
 
-                // If user exists but is not verified and has no google_id, delete the old record
-                if ($existingUser->email_verified_at === null && $existingUser->google_id === null) {
-                    // Clean up related verification codes
-                    EmailVerificationCode::where('user_id', $existingUser->id)->delete();
-                    // Delete the unverified user record
-                    $existingUser->delete();
-                }
+                // Delete the unverified user record
+                $existingUser->delete();
+
+                \Log::info("Deleted unverified user record for email: {$request->email}");
             }
 
             // Create new user
@@ -94,7 +140,8 @@ class AuthController extends Controller
             // Send OTP for verification
             $this->sendVerificationOtp($user);
 
-            $token = $user->createToken('auth_token')->plainTextToken;
+            // Don't create token until email is verified (optional security improvement)
+            // $token = $user->createToken('auth_token')->plainTextToken;
 
             return response()->json([
                 'success' => true,
@@ -108,18 +155,20 @@ class AuthController extends Controller
                     'university' => $user->university,
                     'course' => $user->course,
                     'semester' => $user->semester,
-                    'is_verified' => $user->email_verified_at !== null,
-                    'email_verified_at' => $user->email_verified_at,
-                    'student_verified' => $user->student_verified ?? false,
+                    'is_verified' => false,
+                    'email_verified_at' => null,
+                    'student_verified' => false,
                 ],
-                'token' => $token,
-                'requires_verification' => $user->email_verified_at === null,
+                // 'token' => $token, // Only provide token after verification
+                'requires_verification' => true,
             ], 201);
         } catch (\Exception $e) {
+            \Log::error('Registration failed: ' . $e->getMessage());
+
             return response()->json([
                 'success' => false,
                 'message' => 'Registration failed',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
@@ -175,6 +224,14 @@ class AuthController extends Controller
                 ], 404);
             }
 
+            // Check if user is already verified
+            if ($user->email_verified_at) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Email is already verified'
+                ], 400);
+            }
+
             $verificationCode = EmailVerificationCode::where('user_id', $user->id)
                 ->where('code', $request->otp)
                 ->where('used', false)
@@ -191,7 +248,7 @@ class AuthController extends Controller
             // Mark OTP as used
             $verificationCode->update(['used' => true]);
 
-            // Verify user email
+            // Verify user email - this makes email and phone unique
             $user->update(['email_verified_at' => now()]);
 
             $token = $user->createToken('auth_token')->plainTextToken;
@@ -204,15 +261,22 @@ class AuthController extends Controller
                     'name' => $user->name,
                     'email' => $user->email,
                     'phone' => $user->phone,
+                    'profile_image' => $user->profile_image,
+                    'university' => $user->university,
+                    'course' => $user->course,
+                    'semester' => $user->semester,
                     'is_verified' => true,
+                    'email_verified_at' => $user->email_verified_at,
                 ],
                 'token' => $token
             ], 200);
         } catch (\Exception $e) {
+            \Log::error('OTP verification failed: ' . $e->getMessage());
+
             return response()->json([
                 'success' => false,
                 'message' => 'Verification failed',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
@@ -347,6 +411,7 @@ class AuthController extends Controller
             'email' => 'required|email',
             'name' => 'required|string',
             'photo_url' => 'nullable|string|url',
+            'fcm_token' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -374,31 +439,82 @@ class AuthController extends Controller
             $name = $payload['name'];
             $profileImage = $request->photo_url ?? $payload['picture'] ?? null;
 
-            // Find or create user
-            $user = User::where('email', $email)->first();
+            // Check for existing users with this email
+            $existingUser = User::where('email', $email)->first();
 
-            if (!$user) {
-                $user = User::create([
-                    'name' => $name,
-                    'email' => $email,
-                    'google_id' => $googleId,
-                    'profile_image' => $profileImage,
-                    'email_verified_at' => now(),
-                    'password' => Hash::make(Str::random(24)), // Random password for social login
-                ]);
-            } else {
-                // Update Google ID and profile image if not set
-                $user->update([
-                    'google_id' => $googleId,
-                    'profile_image' => $profileImage ?: $user->profile_image,
-                    'email_verified_at' => $user->email_verified_at ?: now(),
-                ]);
+            if ($existingUser) {
+                // Case 1: User exists and is verified (email_verified_at OR google_id exists)
+                if ($existingUser->email_verified_at !== null || $existingUser->google_id !== null) {
+
+                    // Update Google ID and profile image if this is a different Google account
+                    // or if Google ID is not set yet
+                    $updateData = [];
+
+                    if (!$existingUser->google_id) {
+                        $updateData['google_id'] = $googleId;
+                    }
+
+                    if ($profileImage && !$existingUser->profile_image) {
+                        $updateData['profile_image'] = $profileImage;
+                    }
+
+                    // Ensure email is verified for Google sign-ins
+                    if (!$existingUser->email_verified_at) {
+                        $updateData['email_verified_at'] = now();
+                    }
+
+                    // Update FCM token if provided
+                    if ($request->has('fcm_token')) {
+                        $updateData['fcm_token'] = $request->fcm_token;
+                    }
+
+                    if (!empty($updateData)) {
+                        $existingUser->update($updateData);
+                    }
+
+                    $token = $existingUser->createToken('auth_token')->plainTextToken;
+
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Google sign-in successful',
+                        'user' => [
+                            'id' => $existingUser->id,
+                            'name' => $existingUser->name,
+                            'email' => $existingUser->email,
+                            'phone' => $existingUser->phone,
+                            'profile_image' => $existingUser->profile_image,
+                            'university' => $existingUser->university,
+                            'course' => $existingUser->course,
+                            'semester' => $existingUser->semester,
+                            'is_verified' => true,
+                            'student_verified' => $existingUser->student_verified ?? false,
+                        ],
+                        'token' => $token
+                    ]);
+                }
+
+                // Case 2: User exists but is NOT verified (can be replaced)
+                if ($existingUser->email_verified_at === null && $existingUser->google_id === null) {
+                    // Clean up related verification codes
+                    EmailVerificationCode::where('user_id', $existingUser->id)->delete();
+
+                    // Delete the unverified user record
+                    $existingUser->delete();
+
+                    \Log::info("Deleted unverified user record for Google sign-in with email: {$email}");
+                }
             }
 
-            // Update FCM token if provided
-            if ($request->has('fcm_token')) {
-                $user->update(['fcm_token' => $request->fcm_token]);
-            }
+            // Case 3: No existing user OR unverified user was deleted - create new user
+            $user = User::create([
+                'name' => $name,
+                'email' => $email,
+                'google_id' => $googleId,
+                'profile_image' => $profileImage,
+                'email_verified_at' => now(), // Google emails are pre-verified
+                'password' => Hash::make(Str::random(24)), // Random password for social login
+                'fcm_token' => $request->fcm_token,
+            ]);
 
             $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -414,16 +530,18 @@ class AuthController extends Controller
                     'university' => $user->university,
                     'course' => $user->course,
                     'semester' => $user->semester,
-                    'is_verified' => $user->email_verified_at !== null,
+                    'is_verified' => true,
                     'student_verified' => $user->student_verified ?? false,
                 ],
                 'token' => $token
             ]);
         } catch (\Exception $e) {
+            \Log::error('Google sign-in failed: ' . $e->getMessage());
+
             return response()->json([
                 'success' => false,
                 'message' => 'Google sign-in failed',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }

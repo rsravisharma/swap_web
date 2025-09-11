@@ -14,12 +14,12 @@ return new class extends Migration
         Schema::create('users', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->string('email')->unique()->nullable();
+            $table->string('email')->nullable();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
 
             // Phone authentication
-            $table->string('phone', 20)->nullable()->unique();
+            $table->string('phone', 20)->nullable();
             $table->timestamp('phone_verified_at')->nullable();
 
             // Social login fields
@@ -51,7 +51,7 @@ return new class extends Migration
             $table->string('device_id')->nullable();
             $table->enum('preferred_language', ['en', 'hi', 'es', 'fr'])->default('en');
 
-            
+
             // Add to users migration
             $table->enum('device_type', ['android', 'ios'])->nullable();
             $table->timestamp('last_token_update')->nullable();
@@ -80,12 +80,15 @@ return new class extends Migration
             $table->rememberToken();
             $table->timestamps();
 
+            $table->index('email');
+            $table->index('phone');
+            $table->index('email_verified_at');
+            $table->index(['email', 'email_verified_at']);
             // Indexes for performance
             $table->index(['email', 'phone']);
             $table->index(['university', 'course']);
             $table->index(['is_active', 'student_verified']);
             $table->index('last_active_at');
-
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
