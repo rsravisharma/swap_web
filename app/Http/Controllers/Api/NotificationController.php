@@ -23,11 +23,63 @@ class NotificationController extends Controller
 
     public function __construct()
     {
-        $factory = (new Factory)
-            ->withServiceAccount(config('firebase.credentials'))
-            ->withProjectId(config('firebase.project_id'));
-        
-        $this->messaging = $factory->createMessaging();
+        try {
+            $credentialsPath = config('firebase.credentials');
+            $projectId = config('firebase.project_id');
+
+
+            if (empty($credentialsPath)) {
+                throw new \Exception('Firebase credentials not configured. Please set FIREBASE_CREDENTIALS in your .env file.');
+            }
+
+            if (empty($projectId)) {
+                throw new \Exception('Firebase project ID not configured. Please set FIREBASE_PROJECT_ID in your .env file.');
+            }
+
+
+            if (!file_exists($credentialsPath)) {
+                throw new \Exception("Firebase credentials file not found at: {$credentialsPath}");
+            }
+
+            $factory = (new Factory)
+                ->withServiceAccount($credentialsPath)
+                ->withProjectId($projectId);
+
+            $this->messaging = $factory->createMessaging();
+        } catch (\Exception $e) {
+            \Log::error('Firebase initialization failed: ' . $e->getMessage());
+
+
+            $this->messaging = null;
+        }
+    }
+
+    public function getNotifications()
+    {
+        if (!$this->messaging) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Firebase not properly configured',
+                'error' => 'Push notification service unavailable'
+            ], 500);
+        }
+
+        // Your notification logic here
+        try {
+            // Example notification logic
+            return response()->json([
+                'success' => true,
+                'data' => []
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error getting notifications: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get notifications',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
     }
 
     /**
@@ -60,7 +112,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'message' => 'FCM token updated successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -88,7 +139,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'data' => $preferences
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -122,7 +172,7 @@ class NotificationController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             UserNotificationPreference::updateOrCreate(
                 ['user_id' => $user->id],
                 [
@@ -139,7 +189,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'message' => 'Preferences updated successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -158,14 +207,14 @@ class NotificationController extends Controller
         try {
             $session = $message->session;
             $sender = $message->sender;
-            
+
             // Get recipient
-            $recipientId = $session->user_one_id === $sender->id 
-                ? $session->user_two_id 
+            $recipientId = $session->user_one_id === $sender->id
+                ? $session->user_two_id
                 : $session->user_one_id;
-            
+
             $recipient = User::find($recipientId);
-            
+
             if (!$recipient || !$recipient->fcm_token) {
                 return;
             }
@@ -199,7 +248,6 @@ class NotificationController extends Controller
                 ->withData($data);
 
             $this->messaging->send($cloudMessage);
-
         } catch (\Exception $e) {
             \Log::error('Failed to send chat notification: ' . $e->getMessage());
         }
@@ -214,14 +262,14 @@ class NotificationController extends Controller
         try {
             $session = $offer->session;
             $sender = $offer->sender;
-            
+
             // Get recipient based on action
-            $recipientId = $action === 'received' 
+            $recipientId = $action === 'received'
                 ? ($session->user_one_id === $sender->id ? $session->user_two_id : $session->user_one_id)
                 : $sender->id;
-            
+
             $recipient = User::find($recipientId);
-            
+
             if (!$recipient || !$recipient->fcm_token) {
                 return;
             }
@@ -232,14 +280,14 @@ class NotificationController extends Controller
                 return;
             }
 
-            $title = match($action) {
+            $title = match ($action) {
                 'received' => "New offer from {$sender->name}",
                 'accepted' => "Your offer was accepted!",
                 'rejected' => "Your offer was rejected",
                 default => "Offer update"
             };
 
-            $body = match($action) {
+            $body = match ($action) {
                 'received' => "{$offer->currency} {$offer->amount}",
                 'accepted' => "Offer for {$offer->currency} {$offer->amount} was accepted",
                 'rejected' => "Offer for {$offer->currency} {$offer->amount} was rejected",
@@ -262,7 +310,6 @@ class NotificationController extends Controller
                 ->withData($data);
 
             $this->messaging->send($cloudMessage);
-
         } catch (\Exception $e) {
             \Log::error('Failed to send offer notification: ' . $e->getMessage());
         }
@@ -307,7 +354,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'message' => 'Notification sent to topic successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -336,7 +382,7 @@ class NotificationController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             if (!$user->fcm_token) {
                 return response()->json([
                     'success' => false,
@@ -350,7 +396,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'message' => 'Subscribed to topic successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -379,7 +424,7 @@ class NotificationController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             if (!$user->fcm_token) {
                 return response()->json([
                     'success' => false,
@@ -393,7 +438,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'message' => 'Unsubscribed from topic successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -429,11 +473,11 @@ class NotificationController extends Controller
 
 
 
-     /**
+    /**
      * Get notifications with filtering and pagination
      * GET /notifications
      */
-    public function getNotifications(Request $request): JsonResponse
+    public function getUserNotifications(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'page' => 'integer|min:1',
@@ -477,7 +521,6 @@ class NotificationController extends Controller
                     'has_more' => $notifications->hasMorePages(),
                 ]
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -523,7 +566,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'data' => $settings
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -565,7 +607,7 @@ class NotificationController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             UserNotificationPreference::updateOrCreate(
                 ['user_id' => $user->id],
                 [
@@ -589,7 +631,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'message' => 'Notification settings saved successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -627,7 +668,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'message' => 'Notification marked as read'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -645,7 +685,7 @@ class NotificationController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             UserNotification::where('user_id', $user->id)
                 ->where('is_read', false)
                 ->update([
@@ -657,7 +697,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'message' => 'All notifications marked as read'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -692,7 +731,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'message' => 'Notification deleted successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -710,14 +748,13 @@ class NotificationController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             UserNotification::where('user_id', $user->id)->delete();
 
             return response()->json([
                 'success' => true,
                 'message' => 'All notifications cleared successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -755,7 +792,6 @@ class NotificationController extends Controller
                 'success' => true,
                 'message' => 'FCM token updated successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -803,7 +839,6 @@ class NotificationController extends Controller
                 'message' => 'Test notification sent successfully',
                 'data' => $notification
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
