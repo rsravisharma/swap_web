@@ -24,6 +24,22 @@ class AuthController extends Controller
     /**
      * User registration
      */
+
+    public function generateAblyToken(Request $request)
+    {
+        $user = $request->user();
+
+        $ablyAuth = new AblyAuth('YOUR_ABLY_API_KEY', 'YOUR_ABLY_SECRET');
+        $tokenRequest = $ablyAuth->createTokenRequest([
+            'clientId' => (string) $user->id,
+            'capability' => [
+                "user:{$user->id}:*" => ["publish", "subscribe"]
+            ]
+        ]);
+
+        return response()->json($tokenRequest);
+    }
+
     public function register(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -93,11 +109,11 @@ class AuthController extends Controller
                     'course' => $user->course,
                     'semester' => $user->semester,
                     'is_verified' => $user->email_verified_at !== null,
-                    'email_verified_at' => $user->email_verified_at, 
+                    'email_verified_at' => $user->email_verified_at,
                     'student_verified' => $user->student_verified ?? false,
                 ],
                 'token' => $token,
-                'requires_verification' => $user->email_verified_at === null, 
+                'requires_verification' => $user->email_verified_at === null,
             ], 201);
         } catch (\Exception $e) {
             return response()->json([

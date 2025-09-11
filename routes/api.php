@@ -20,7 +20,8 @@ use App\Http\Controllers\Api\{
     ItemController,
     LegalController,
     ProfileController,
-    SettingsController
+    SettingsController,
+    UserController
 };
 
 // ================================
@@ -39,6 +40,7 @@ Route::prefix('auth')->group(function () {
     Route::post('resend-otp', [AuthController::class, 'resendOtp']);
     Route::post('forgot-password', [AuthController::class, 'forgotPassword']);
     Route::get('country-codes', [AuthController::class, 'phoneCountryCode']);
+    Route::post('ably-token', [AuthController::class, 'generateAblyToken']);
 });
 
 // Category Routes (Public)
@@ -119,6 +121,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('{chatId}/offers/{messageId}/reject', [CommunicationController::class, 'rejectOffer']);
 
         Route::post('{chatId}/report', [CommunicationController::class, 'reportChat']);
+        Route::post('store-ably-message', [ChatController::class, 'storeAblyMessage']);
     });
 
     Route::post('upload/chat-image', [CommunicationController::class, 'uploadChatImage']);
@@ -193,6 +196,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('user')->group(function () {
         Route::get('recent-locations', [LocationController::class, 'getRecentLocations']);
         Route::post('recent-locations', [LocationController::class, 'saveRecentLocation']);
+
+        Route::get('notification-settings', [UserController::class, 'getNotificationSettings']);
+        Route::put('notification-settings', [UserController::class, 'updateNotificationSettings']);
     });
 
     Route::post('location/custom', [LocationController::class, 'addCustomLocation']);
@@ -312,6 +318,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('all', [SearchController::class, 'getAllSearchResults']);
         Route::get('items', [SearchController::class, 'searchItems']);
         Route::get('users', [SearchController::class, 'searchUsers']);
+        Route::get('users/suggested', [SearchController::class, 'getSuggestedUsers']);
         Route::post('filtered', [SearchController::class, 'getFilteredProducts']);
 
         Route::get('categories', [SearchController::class, 'getCategoriesWithCounts']);

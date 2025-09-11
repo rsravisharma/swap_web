@@ -244,4 +244,9 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $query->where('course', 'LIKE', "%{$course}%");
     }
+
+    public function notificationSettings()
+    {
+        return $this->hasOne(NotificationSetting::class);
+    }
 }

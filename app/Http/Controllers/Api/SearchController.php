@@ -79,7 +79,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $results
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -121,8 +120,8 @@ class SearchController extends Controller
             $items = Product::where('status', 'active')
                 ->where(function ($q) use ($query) {
                     $q->where('title', 'like', "%{$query}%")
-                      ->orWhere('description', 'like', "%{$query}%")
-                      ->orWhere('category', 'like', "%{$query}%");
+                        ->orWhere('description', 'like', "%{$query}%")
+                        ->orWhere('category', 'like', "%{$query}%");
                 });
 
             // Apply filters
@@ -193,7 +192,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $results
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -266,7 +264,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $results
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -290,7 +287,7 @@ class SearchController extends Controller
                 $searchQuery = $request->input('query');
                 $query->where(function ($q) use ($searchQuery) {
                     $q->where('title', 'like', "%{$searchQuery}%")
-                      ->orWhere('description', 'like', "%{$searchQuery}%");
+                        ->orWhere('description', 'like', "%{$searchQuery}%");
                 });
             }
 
@@ -354,7 +351,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $results
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -374,14 +370,13 @@ class SearchController extends Controller
             $categories = Category::withCount(['products' => function ($query) {
                 $query->where('status', 'active');
             }])
-            ->orderBy('name')
-            ->get();
+                ->orderBy('name')
+                ->get();
 
             return response()->json([
                 'success' => true,
                 'data' => $categories
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -409,7 +404,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $subcategories
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -434,7 +428,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $locations
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -459,7 +452,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $universities
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -499,7 +491,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $suggestions
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -540,7 +531,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $suggestions
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -568,7 +558,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $trending
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -596,7 +585,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $popular
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -614,7 +602,7 @@ class SearchController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             $recent = SearchHistory::where('user_id', $user->id)
                 ->where('type', 'item')
                 ->orderBy('created_at', 'desc')
@@ -628,7 +616,6 @@ class SearchController extends Controller
                 'success' => true,
                 'data' => $recent
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -658,7 +645,7 @@ class SearchController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             // Clear existing history
             SearchHistory::where('user_id', $user->id)->delete();
 
@@ -675,7 +662,6 @@ class SearchController extends Controller
                 'success' => true,
                 'message' => 'Search history saved successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -693,14 +679,13 @@ class SearchController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             SearchHistory::where('user_id', $user->id)->delete();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Search history cleared successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -753,7 +738,6 @@ class SearchController extends Controller
                 'message' => $message,
                 'is_favorited' => $isFavorited
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -813,7 +797,6 @@ class SearchController extends Controller
                 'message' => $message,
                 'is_following' => $isFollowing
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -847,6 +830,41 @@ class SearchController extends Controller
                 'query' => $query,
                 'type' => $type
             ]);
+        }
+    }
+
+    public function getSuggestedUsers(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user(); // Get authenticated user via Sanctum
+
+            // Get suggested users (exclude current user and already followed users)
+            $suggestedUsers = User::where('id', '!=', $user->id)
+                ->whereNotIn('id', function ($query) use ($user) {
+                    // Assuming you have a followers/following relationship
+                    $query->select('following_id')
+                        ->from('user_followers')
+                        ->where('follower_id', $user->id);
+                })
+                ->where('is_active', true)
+                ->orderBy('created_at', 'desc')
+                ->limit(20)
+                ->select(['id', 'name', 'email', 'avatar', 'created_at'])
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Suggested users retrieved successfully',
+                'data' => $suggestedUsers
+            ], 200);
+        } catch (\Exception $e) {
+            \Log::error('Error getting suggested users: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get suggested users',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
         }
     }
 }
