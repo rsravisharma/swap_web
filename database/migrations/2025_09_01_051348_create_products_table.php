@@ -25,7 +25,7 @@ return new class extends Migration
             $table->timestamps();
             
             $table->index(['user_id', 'status']);
-            $table->index(['category', 'status']);
+            $table->index(['category_id', 'status']);
             $table->index('status');
             $table->fullText(['title', 'description']);
         });
