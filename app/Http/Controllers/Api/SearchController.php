@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use App\Models\TrendingSearch;
 
 class SearchController extends Controller
 {
@@ -544,26 +545,64 @@ class SearchController extends Controller
      * Get trending searches
      * GET /search/trending
      */
-    public function getTrendingSearches(): JsonResponse
+    public function getTrendingSearches(Request $request): JsonResponse
     {
         try {
-            $trending = Cache::remember('trending_searches', 900, function () {
-                return TrendingSearch::orderBy('hits', 'desc')
-                    ->limit(10)
-                    ->pluck('term')
-                    ->toArray();
+            $period = $request->get('period', 'week'); // today, week, month
+            $limit = min($request->get('limit', 10), 50); // Max 50 results
+
+            $cacheKey = "trending_searches_{$period}_{$limit}";
+
+            $trending = Cache::remember($cacheKey, 900, function () use ($period, $limit) {
+                switch ($period) {
+                    case 'today':
+                        return TrendingSearch::getTodaysTrending($limit);
+                    case 'month':
+                        return TrendingSearch::getMonthlyTrending($limit);
+                    case 'week':
+                    default:
+                        return TrendingSearch::getWeeklyTrending($limit);
+                }
             });
 
             return response()->json([
                 'success' => true,
-                'data' => $trending
+                'data' => $trending,
+                'period' => $period,
+                'count' => count($trending)
             ]);
         } catch (\Exception $e) {
+            \Log::error('Error fetching trending searches: ' . $e->getMessage());
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch trending searches',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
+        }
+    }
+
+    public function recordSearch(Request $request): JsonResponse
+    {
+        $request->validate([
+            'term' => 'required|string|max:255'
+        ]);
+
+        try {
+            TrendingSearch::recordSearch($request->term);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Search recorded'
+            ]);
+        } catch (\Exception $e) {
+            // Don't fail the search if recording fails
+            \Log::warning('Failed to record search term: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Search completed'
+            ]);
         }
     }
 
@@ -855,7 +894,7 @@ class SearchController extends Controller
                         'id' => $user->id,
                         'name' => $user->name,
                         'email' => $user->email,
-                        'avatar' => $user->profile_image, 
+                        'avatar' => $user->profile_image,
                         'created_at' => $user->created_at,
                     ];
                 });

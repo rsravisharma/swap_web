@@ -332,6 +332,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('suggestions', [SearchController::class, 'getSearchSuggestions']);
         Route::get('quick-suggestions', [SearchController::class, 'getQuickSuggestions']);
         Route::get('trending', [SearchController::class, 'getTrendingSearches']);
+        Route::post('record', [SearchController::class, 'recordSearch']);
         Route::get('popular', [SearchController::class, 'getPopularSearches']);
 
         Route::prefix('history')->group(function () {
