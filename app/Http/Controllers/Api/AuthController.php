@@ -19,6 +19,7 @@ use Illuminate\Auth\Events\Verified;
 use Google_Client;
 use Carbon\Carbon;
 use Laravel\Socialite\Facades\Socialite;
+use Illuminate\Support\Facades\Log;
 
 class AuthController extends Controller
 {
@@ -123,7 +124,7 @@ class AuthController extends Controller
                 // Delete the unverified user record
                 $existingUser->delete();
 
-                \Log::info("Deleted unverified user record for email: {$request->email}");
+                Log::info("Deleted unverified user record for email: {$request->email}");
             }
 
             // Create new user
@@ -164,7 +165,7 @@ class AuthController extends Controller
                 'requires_verification' => true,
             ], 201);
         } catch (\Exception $e) {
-            \Log::error('Registration failed: ' . $e->getMessage());
+            Log::error('Registration failed: ' . $e->getMessage());
 
             return response()->json([
                 'success' => false,
@@ -272,7 +273,7 @@ class AuthController extends Controller
                 'token' => $token
             ], 200);
         } catch (\Exception $e) {
-            \Log::error('OTP verification failed: ' . $e->getMessage());
+            Log::error('OTP verification failed: ' . $e->getMessage());
 
             return response()->json([
                 'success' => false,
@@ -407,6 +408,12 @@ class AuthController extends Controller
      */
     public function googleSignIn(Request $request): JsonResponse
     {
+        Log::debug('Google Sign-In initiated', [
+            'request_data' => $request->only(['email', 'name', 'photo_url', 'fcm_token']),
+            'has_id_token' => $request->has('id_token'),
+            'id_token_length' => $request->id_token ? strlen($request->id_token) : 0
+        ]);
+
         $validator = Validator::make($request->all(), [
             'id_token' => 'required|string',
             'email' => 'required|email',
@@ -416,6 +423,11 @@ class AuthController extends Controller
         ]);
 
         if ($validator->fails()) {
+            Log::warning('Google Sign-In validation failed', [
+                'errors' => $validator->errors()->toArray(),
+                'request_data' => $request->only(['email', 'name', 'photo_url'])
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
@@ -423,29 +435,66 @@ class AuthController extends Controller
             ], 422);
         }
 
+        Log::debug('Validation passed, starting Google token verification');
+
         try {
             // Verify Google ID token
             $client = new Google_Client(['client_id' => config('services.google.client_id')]);
+
+            Log::debug('Google Client initialized', [
+                'client_id' => config('services.google.client_id') ? 'Present' : 'Missing'
+            ]);
+
             $payload = $client->verifyIdToken($request->id_token);
 
             if (!$payload) {
+                Log::error('Google token verification failed', [
+                    'id_token_preview' => substr($request->id_token, 0, 50) . '...',
+                    'email' => $request->email
+                ]);
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Invalid Google token'
                 ], 401);
             }
 
+            Log::debug('Google token verified successfully', [
+                'google_id' => $payload['sub'] ?? 'N/A',
+                'email' => $payload['email'] ?? 'N/A',
+                'name' => $payload['name'] ?? 'N/A'
+            ]);
+
             $googleId = $payload['sub'];
             $email = $payload['email'];
             $name = $payload['name'];
             $profileImage = $request->photo_url ?? $payload['picture'] ?? null;
 
+            Log::debug('Extracted user data from token', [
+                'google_id' => $googleId,
+                'email' => $email,
+                'name' => $name,
+                'has_profile_image' => !empty($profileImage)
+            ]);
+
             // Check for existing users with this email
             $existingUser = User::where('email', $email)->first();
 
             if ($existingUser) {
+                Log::debug('Existing user found', [
+                    'user_id' => $existingUser->id,
+                    'email' => $existingUser->email,
+                    'has_google_id' => !empty($existingUser->google_id),
+                    'email_verified' => !empty($existingUser->email_verified_at),
+                    'current_google_id' => $existingUser->google_id
+                ]);
+
                 // Case 1: User exists and is verified (email_verified_at OR google_id exists)
                 if ($existingUser->email_verified_at !== null || $existingUser->google_id !== null) {
+                    Log::debug('User is verified, proceeding with login', [
+                        'user_id' => $existingUser->id,
+                        'verification_method' => $existingUser->email_verified_at ? 'email' : 'google'
+                    ]);
 
                     // Update Google ID and profile image if this is a different Google account
                     // or if Google ID is not set yet
@@ -453,27 +502,40 @@ class AuthController extends Controller
 
                     if (!$existingUser->google_id) {
                         $updateData['google_id'] = $googleId;
+                        Log::debug('Adding Google ID to existing user', ['google_id' => $googleId]);
                     }
 
                     if ($profileImage && !$existingUser->profile_image) {
                         $updateData['profile_image'] = $profileImage;
+                        Log::debug('Adding profile image to existing user');
                     }
 
                     // Ensure email is verified for Google sign-ins
                     if (!$existingUser->email_verified_at) {
                         $updateData['email_verified_at'] = now();
+                        Log::debug('Setting email as verified for Google sign-in');
                     }
 
                     // Update FCM token if provided
                     if ($request->has('fcm_token')) {
                         $updateData['fcm_token'] = $request->fcm_token;
+                        Log::debug('Updating FCM token for existing user');
                     }
 
                     if (!empty($updateData)) {
+                        Log::debug('Updating existing user data', ['updates' => array_keys($updateData)]);
                         $existingUser->update($updateData);
+                    } else {
+                        Log::debug('No updates needed for existing user');
                     }
 
                     $token = $existingUser->createToken('auth_token')->plainTextToken;
+
+                    Log::info('Google sign-in successful for existing user', [
+                        'user_id' => $existingUser->id,
+                        'email' => $existingUser->email,
+                        'token_created' => true
+                    ]);
 
                     return response()->json([
                         'success' => true,
@@ -496,17 +558,33 @@ class AuthController extends Controller
 
                 // Case 2: User exists but is NOT verified (can be replaced)
                 if ($existingUser->email_verified_at === null && $existingUser->google_id === null) {
+                    Log::warning('Found unverified user, deleting and replacing', [
+                        'user_id' => $existingUser->id,
+                        'email' => $existingUser->email
+                    ]);
+
                     // Clean up related verification codes
-                    EmailVerificationCode::where('user_id', $existingUser->id)->delete();
+                    $deletedCodes = EmailVerificationCode::where('user_id', $existingUser->id)->delete();
+                    Log::debug('Deleted verification codes', ['count' => $deletedCodes]);
 
                     // Delete the unverified user record
                     $existingUser->delete();
 
-                    \Log::info("Deleted unverified user record for Google sign-in with email: {$email}");
+                    Log::info("Deleted unverified user record for Google sign-in with email: {$email}");
                 }
+            } else {
+                Log::debug('No existing user found, will create new user', ['email' => $email]);
             }
 
             // Case 3: No existing user OR unverified user was deleted - create new user
+            Log::debug('Creating new user', [
+                'name' => $name,
+                'email' => $email,
+                'google_id' => $googleId,
+                'has_profile_image' => !empty($profileImage),
+                'has_fcm_token' => !empty($request->fcm_token)
+            ]);
+
             $user = User::create([
                 'name' => $name,
                 'email' => $email,
@@ -517,7 +595,18 @@ class AuthController extends Controller
                 'fcm_token' => $request->fcm_token,
             ]);
 
+            Log::info('New user created successfully', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'google_id' => $user->google_id
+            ]);
+
             $token = $user->createToken('auth_token')->plainTextToken;
+
+            Log::info('Google sign-in completed successfully for new user', [
+                'user_id' => $user->id,
+                'token_created' => true
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -537,7 +626,14 @@ class AuthController extends Controller
                 'token' => $token
             ]);
         } catch (\Exception $e) {
-            \Log::error('Google sign-in failed: ' . $e->getMessage());
+            Log::error('Google sign-in failed with exception', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+                'email' => $request->email ?? 'N/A',
+                'request_data' => $request->only(['email', 'name', 'photo_url'])
+            ]);
 
             return response()->json([
                 'success' => false,
