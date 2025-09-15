@@ -18,6 +18,7 @@ use App\Notifications\EmailVerificationCodeNotification;
 use Illuminate\Auth\Events\Verified;
 use Google_Client;
 use Carbon\Carbon;
+use Laravel\Socialite\Facades\Socialite;
 
 class AuthController extends Controller
 {
@@ -260,10 +261,10 @@ class AuthController extends Controller
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
-                    'phone' => $user->phone ?? '', 
-                    'profile_image' => $user->profile_image ?? '', 
+                    'phone' => $user->phone ?? '',
+                    'profile_image' => $user->profile_image ?? '',
                     'university' => $user->university ?? '',
-                    'course' => $user->course ?? '', 
+                    'course' => $user->course ?? '',
                     'semester' => $user->semester ?? '',
                     'is_verified' => true,
                     'email_verified_at' => $user->email_verified_at,
@@ -544,6 +545,35 @@ class AuthController extends Controller
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
+    }
+
+    public function redirectToGoogle()
+    {
+        return Socialite::driver('google')->stateless()->redirect();
+    }
+
+    public function handleGoogleCallback()
+    {
+        $googleUser = Socialite::driver('google')->stateless()->user();
+
+        $email = $googleUser->getEmail();
+        $name = $googleUser->getName();
+        $avatar = $googleUser->getAvatar();
+
+        // Create or update the user
+        $user = User::updateOrCreate(
+            ['email' => $email],
+            [
+                'name' => $name,
+                'profile_image' => $avatar,
+            ]
+        );
+
+        // Generate a token
+        $token = $user->createToken('google_token')->plainTextToken;
+
+        // Redirect to frontend with token as query param
+        return redirect()->away(env('APP_URL') . "/oauth-success?token=$token");
     }
 
     /**
