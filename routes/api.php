@@ -186,20 +186,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('purchases/{purchaseId}/cancel', [ItemController::class, 'cancelOrder']);
 
         // Parameterized routes (NO CONSTRAINTS for now)
-        Route::get('{id}', [ItemController::class, 'show']); // Public view
-        Route::get('{id}/edit', [ItemController::class, 'edit']); // Owner-only view for editing
-        Route::put('{id}', [ItemController::class, 'update']);
-        Route::delete('{id}', [ItemController::class, 'destroy']);
+        Route::get('{item}', [ItemController::class, 'show']); // Public view
+        Route::get('{item}/edit', [ItemController::class, 'edit']); // Owner-only view for editing
+        Route::put('{item}', [ItemController::class, 'update']);
+        Route::delete('{item}', [ItemController::class, 'destroy']);
 
         // Item-specific actions
-        Route::post('{id}/promote', [ItemController::class, 'promote']);
-        Route::post('{id}/mark-sold', [ItemController::class, 'markAsSold']);
-        Route::post('{id}/archive', [ItemController::class, 'archive']);
-        Route::patch('{id}/status', [ItemController::class, 'updateStatus']);
+        Route::post('{item}/promote', [ItemController::class, 'promote']);
+        Route::post('{item}/mark-sold', [ItemController::class, 'markAsSold']);
+        Route::post('{item}/archive', [ItemController::class, 'archive']);
+        Route::patch('{item}/status', [ItemController::class, 'updateStatus']);
 
         // Item relationships
-        Route::post('{id}/toggle-favorite', [ItemController::class, 'toggleFavorite']);
-        Route::get('{id}/related', [ItemController::class, 'getRelated']);
+        Route::post('{item}/toggle-favorite', [ItemController::class, 'toggleFavorite']);
+        Route::get('{item}/related', [ItemController::class, 'getRelated']);
     });
 
     // ================================
