@@ -26,7 +26,7 @@ class ItemReport extends Model
 
     public function item()
     {
-        return $this->belongsTo(Product::class, 'item_id');
+        return $this->belongsTo(Item::class, 'item_id');
     }
 
     public function itemOwner()

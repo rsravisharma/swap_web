@@ -9,7 +9,7 @@ use App\Models\Earning;
 use App\Models\StudentVerification;
 use App\Models\UserFollow;
 use App\Models\UserBlock;
-use App\Models\Product;
+use App\Models\Item;
 use App\Models\Favorite;
 use App\Models\Purchase;
 use Illuminate\Http\Request;
@@ -184,8 +184,8 @@ class ProfileController extends Controller
         try {
             $targetUserId = $userId ?: Auth::id();
 
-            $listings = Product::where('user_id', $targetUserId)->count();
-            $sold = Product::where('user_id', $targetUserId)->where('status', 'sold')->count();
+            $listings = Item::where('user_id', $targetUserId)->count();
+            $sold = Item::where('user_id', $targetUserId)->where('status', 'sold')->count();
             $purchases = Purchase::where('user_id', $targetUserId)->count();
             $followers = UserFollow::where('followed_id', $targetUserId)->count();
             $following = UserFollow::where('follower_id', $targetUserId)->count();
@@ -495,7 +495,7 @@ class ProfileController extends Controller
         try {
             $user = Auth::user();
             
-            $wishlistItems = Product::whereHas('favorites', function ($query) use ($user) {
+            $wishlistItems = Item::whereHas('favorites', function ($query) use ($user) {
                 $query->where('user_id', $user->id);
             })
             ->with(['user:id,name,profile_image', 'images'])

@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Product;
+use App\Models\Item;
 use App\Models\User;
 use App\Models\Category;
 use App\Models\SearchHistory;
@@ -50,7 +50,7 @@ class SearchController extends Controller
             $results = [];
 
             if ($type === 'all' || $type === 'items') {
-                $items = Product::where('title', 'like', "%{$query}%")
+                $items = Item::where('title', 'like', "%{$query}%")
                     ->orWhere('description', 'like', "%{$query}%")
                     ->orWhere('category', 'like', "%{$query}%")
                     ->where('status', 'active')
@@ -88,7 +88,7 @@ class SearchController extends Controller
     }
 
     /**
-     * Search items/products
+     * Search items
      * GET /search/items
      */
     public function searchItems(Request $request): JsonResponse
@@ -116,7 +116,7 @@ class SearchController extends Controller
             $query = $request->input('query');
             $limit = $request->input('limit', 20);
 
-            $items = Product::where('status', 'active')
+            $items = Item::where('status', 'active')
                 ->where(function ($q) use ($query) {
                     $q->where('title', 'like', "%{$query}%")
                         ->orWhere('description', 'like', "%{$query}%")
@@ -273,13 +273,13 @@ class SearchController extends Controller
     }
 
     /**
-     * Get filtered products
+     * Get filtered items
      * POST /search/filtered
      */
-    public function getFilteredProducts(Request $request): JsonResponse
+    public function getFilteredItems(Request $request): JsonResponse
     {
         try {
-            $query = Product::where('status', 'active');
+            $query = Item::where('status', 'active');
 
             // Apply all possible filters
             if ($request->filled('query')) {
@@ -360,13 +360,13 @@ class SearchController extends Controller
     }
 
     /**
-     * Get categories with product counts
+     * Get categories with items counts
      * GET /search/categories
      */
     public function getCategoriesWithCounts(): JsonResponse
     {
         try {
-            $categories = Category::withCount(['products' => function ($query) {
+            $categories = Category::withCount(['items' => function ($query) {
                 $query->where('status', 'active');
             }])
                 ->orderBy('name')
@@ -393,7 +393,7 @@ class SearchController extends Controller
     {
         try {
             $subcategories = Category::where('parent_id', $categoryId)
-                ->withCount(['products' => function ($query) {
+                ->withCount(['items' => function ($query) {
                     $query->where('status', 'active');
                 }])
                 ->orderBy('name')

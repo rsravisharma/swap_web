@@ -317,7 +317,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('items', [SearchController::class, 'searchItems']);
         Route::get('users', [SearchController::class, 'searchUsers']);
         Route::get('users/suggested', [SearchController::class, 'getSuggestedUsers']);
-        Route::post('filtered', [SearchController::class, 'getFilteredProducts']);
+        Route::post('filtered', [SearchController::class, 'getFilteredItems']);
 
         Route::get('categories', [SearchController::class, 'getCategoriesWithCounts']);
         Route::get('categories/{categoryId}/subcategories', [SearchController::class, 'getSubCategories']);

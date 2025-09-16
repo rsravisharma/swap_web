@@ -33,9 +33,9 @@ class Transaction extends Model
         return $this->belongsTo(User::class, 'seller_id');
     }
 
-    public function product()
+    public function item()
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(Item::class);
     }
 
     public function ratings()

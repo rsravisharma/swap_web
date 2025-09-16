@@ -7,7 +7,7 @@ use App\Models\User;
 use App\Models\UserFollow;
 use App\Models\Rating;
 use App\Models\Transaction;
-use App\Models\Product;
+use App\Models\Item;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -38,7 +38,7 @@ class SocialController extends Controller
                         'followed_at' => $follow->created_at->toDateTimeString(),
                         'is_verified' => $follower->is_verified ?? false,
                         'university' => $follower->profile->university ?? null,
-                        'total_listings' => $follower->products()->count()
+                        'total_listings' => $follower->items()->count()
                     ];
                 });
 
@@ -77,7 +77,7 @@ class SocialController extends Controller
                         'followed_at' => $follow->created_at->toDateTimeString(),
                         'is_verified' => $followed->is_verified ?? false,
                         'university' => $followed->profile->university ?? null,
-                        'total_listings' => $followed->products()->count()
+                        'total_listings' => $followed->items()->count()
                     ];
                 });
 
@@ -451,7 +451,7 @@ class SocialController extends Controller
                     $query->where('buyer_id', $authUser->id)
                           ->orWhere('seller_id', $authUser->id);
                 })
-                ->with(['buyer:id,name,profile_image', 'seller:id,name,profile_image', 'product'])
+                ->with(['buyer:id,name,profile_image', 'seller:id,name,profile_image', 'item'])
                 ->first();
 
             if (!$transaction) {

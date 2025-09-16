@@ -7,7 +7,7 @@ use App\Models\User;
 use App\Models\UserBlock;
 use App\Models\UserReport;
 use App\Models\ItemReport;
-use App\Models\Product;
+use App\Models\Item;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -272,13 +272,13 @@ class SafetyController extends Controller
     }
 
     /**
-     * Report an item/product
+     * Report an item
      * POST /safety/report-item
      */
     public function reportItem(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'item_id' => 'required|integer|exists:products,id',
+            'item_id' => 'required|integer|exists:items,id',
             'reason' => 'required|string|max:500',
             'category' => 'sometimes|string|in:inappropriate_content,fake_listing,overpriced,spam,copyright,other',
             'description' => 'sometimes|string|max:1000',
@@ -296,7 +296,7 @@ class SafetyController extends Controller
             $itemId = $request->item_id;
 
             // Check if item exists
-            $item = Product::find($itemId);
+            $item = Item::find($itemId);
             if (!$item) {
                 return response()->json([
                     'success' => false,

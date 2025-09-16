@@ -24,9 +24,9 @@ class Category extends Model
         'status' => 'string',
     ];
 
-    public function products()
+    public function items()
     {
-        return $this->hasMany(Product::class, 'category_id');
+        return $this->hasMany(Item::class, 'category_id');
     }
 
     public function parent()
