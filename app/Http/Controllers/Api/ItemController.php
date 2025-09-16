@@ -519,16 +519,23 @@ class ItemController extends Controller
     public function getMyListings(): JsonResponse
     {
         try {
+            \Log::info('getMyListings called for user: ' . Auth::id());
+
             $items = Item::with(['images', 'category'])
                 ->where('user_id', Auth::id())
                 ->latest()
                 ->get();
+
+            \Log::info('Found ' . $items->count() . ' items for user: ' . Auth::id());
 
             return response()->json([
                 'success' => true,
                 'data' => $items
             ]);
         } catch (\Exception $e) {
+            \Log::error('getMyListings error: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch listings',

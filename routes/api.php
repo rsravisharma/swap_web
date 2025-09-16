@@ -179,26 +179,26 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('favorites', [ItemController::class, 'getFavorites']);
         Route::get('my-purchases', [ItemController::class, 'getMyPurchases']);
 
-        // Favorites management (specific routes before parameterized)
+        // Favorites management
         Route::delete('favorites/clear', [ItemController::class, 'clearAllFavorites']);
 
         // Purchases management
         Route::post('purchases/{purchaseId}/cancel', [ItemController::class, 'cancelOrder']);
 
-        // Parameterized routes (MUST come after specific routes)
-        Route::get('{id}', [ItemController::class, 'show'])->where('id', '[0-9]+');
-        Route::put('{id}', [ItemController::class, 'update'])->where('id', '[0-9]+');
-        Route::delete('{id}', [ItemController::class, 'destroy'])->where('id', '[0-9]+');
+        // Parameterized routes (NO CONSTRAINTS for now)
+        Route::get('{id}', [ItemController::class, 'show']);
+        Route::put('{id}', [ItemController::class, 'update']);
+        Route::delete('{id}', [ItemController::class, 'destroy']);
 
         // Item-specific actions
-        Route::post('{id}/promote', [ItemController::class, 'promote'])->where('id', '[0-9]+');
-        Route::post('{id}/mark-sold', [ItemController::class, 'markAsSold'])->where('id', '[0-9]+');
-        Route::post('{id}/archive', [ItemController::class, 'archive'])->where('id', '[0-9]+');
-        Route::patch('{id}/status', [ItemController::class, 'updateStatus'])->where('id', '[0-9]+');
+        Route::post('{id}/promote', [ItemController::class, 'promote']);
+        Route::post('{id}/mark-sold', [ItemController::class, 'markAsSold']);
+        Route::post('{id}/archive', [ItemController::class, 'archive']);
+        Route::patch('{id}/status', [ItemController::class, 'updateStatus']);
 
         // Item relationships
-        Route::post('{id}/toggle-favorite', [ItemController::class, 'toggleFavorite'])->where('id', '[0-9]+');
-        Route::get('{id}/related', [ItemController::class, 'getRelated'])->where('id', '[0-9]+');
+        Route::post('{id}/toggle-favorite', [ItemController::class, 'toggleFavorite']);
+        Route::get('{id}/related', [ItemController::class, 'getRelated']);
     });
 
     // ================================
