@@ -229,12 +229,7 @@ class ItemController extends Controller
             }
 
             // Add to history
-            HistoryService::addHistory(Auth::id(), 'create', "Created item: {$item->title}", [
-                'title' => "Created: {$item->title}",
-                'category' => 'Item Management',
-                'related_id' => $item->id,
-                'related_type' => 'Item'
-            ]);
+            HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'create');
 
             return response()->json([
                 'success' => true,
@@ -299,12 +294,7 @@ class ItemController extends Controller
             $item->update($updateData);
 
             // Add to history
-            HistoryService::addHistory(Auth::id(), 'update', "Updated item: {$item->title}", [
-                'title' => "Updated: {$item->title}",
-                'category' => 'Item Management',
-                'related_id' => $item->id,
-                'related_type' => 'Item'
-            ]);
+            HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'update');
 
             return response()->json([
                 'success' => true,
@@ -349,10 +339,7 @@ class ItemController extends Controller
             $item->delete();
 
             // Add to history
-            HistoryService::addHistory(Auth::id(), 'delete', "Deleted item: {$itemTitle}", [
-                'title' => "Deleted: {$itemTitle}",
-                'category' => 'Item Management'
-            ]);
+            HistoryService::addItemHistory(Auth::id(), $item->id, $itemTitle, 'delete');
 
             return response()->json([
                 'success' => true,
@@ -390,12 +377,7 @@ class ItemController extends Controller
             ]);
 
             // Add to history
-            HistoryService::addHistory(Auth::id(), 'sold', "Marked as sold: {$item->title}", [
-                'title' => "Sold: {$item->title}",
-                'category' => 'Sales',
-                'related_id' => $item->id,
-                'related_type' => 'Item'
-            ]);
+            HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'sold');
 
             return response()->json([
                 'success' => true,
@@ -434,12 +416,7 @@ class ItemController extends Controller
             ]);
 
             // Add to history
-            HistoryService::addHistory(Auth::id(), 'archive', "Archived item: {$item->title}", [
-                'title' => "Archived: {$item->title}",
-                'category' => 'Item Management',
-                'related_id' => $item->id,
-                'related_type' => 'Item'
-            ]);
+            HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'archive');
 
             return response()->json([
                 'success' => true,
@@ -492,16 +469,7 @@ class ItemController extends Controller
             $item->update($promotionData);
 
             // Add to history
-            HistoryService::addHistory(Auth::id(), 'promote', "Promoted item: {$item->title}", [
-                'title' => "Promoted: {$item->title}",
-                'category' => 'Promotion',
-                'related_id' => $item->id,
-                'related_type' => 'Item',
-                'details' => [
-                    'promotion_type' => $request->promotion_type,
-                    'duration_days' => $request->duration_days
-                ]
-            ]);
+            HistoryService::addPromotionHistory(Auth::id(), $item->id, $item->title, $request->promotion_type, $request->duration_days);
 
             return response()->json([
                 'success' => true,
