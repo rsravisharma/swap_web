@@ -173,30 +173,32 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/', [ItemController::class, 'index']);
         Route::post('/', [ItemController::class, 'store']);
         Route::get('search', [ItemController::class, 'search']);
-        Route::get('{id}', [ItemController::class, 'show']);
-        Route::put('{id}', [ItemController::class, 'update']);
-        Route::delete('{id}', [ItemController::class, 'destroy']);
 
-        // Item-specific actions
-        Route::post('{id}/promote', [ItemController::class, 'promote']);
-        Route::post('{id}/mark-sold', [ItemController::class, 'markAsSold']);
-        Route::post('{id}/archive', [ItemController::class, 'archive']);
-
-        // User-specific actions
+        // User-specific routes (MUST come before {id} routes)
         Route::get('my-listings', [ItemController::class, 'getMyListings']);
-        Route::patch('{id}/status', [ItemController::class, 'updateStatus']);
-
-        // Favorites
         Route::get('favorites', [ItemController::class, 'getFavorites']);
-        Route::post('{id}/toggle-favorite', [ItemController::class, 'toggleFavorite']);
+        Route::get('my-purchases', [ItemController::class, 'getMyPurchases']);
+
+        // Favorites management (specific routes before parameterized)
         Route::delete('favorites/clear', [ItemController::class, 'clearAllFavorites']);
 
-        // Related items
-        Route::get('{id}/related', [ItemController::class, 'getRelated']);
-
-        // Purchases
-        Route::get('my-purchases', [ItemController::class, 'getMyPurchases']);
+        // Purchases management
         Route::post('purchases/{purchaseId}/cancel', [ItemController::class, 'cancelOrder']);
+
+        // Parameterized routes (MUST come after specific routes)
+        Route::get('{id}', [ItemController::class, 'show'])->where('id', '[0-9]+');
+        Route::put('{id}', [ItemController::class, 'update'])->where('id', '[0-9]+');
+        Route::delete('{id}', [ItemController::class, 'destroy'])->where('id', '[0-9]+');
+
+        // Item-specific actions
+        Route::post('{id}/promote', [ItemController::class, 'promote'])->where('id', '[0-9]+');
+        Route::post('{id}/mark-sold', [ItemController::class, 'markAsSold'])->where('id', '[0-9]+');
+        Route::post('{id}/archive', [ItemController::class, 'archive'])->where('id', '[0-9]+');
+        Route::patch('{id}/status', [ItemController::class, 'updateStatus'])->where('id', '[0-9]+');
+
+        // Item relationships
+        Route::post('{id}/toggle-favorite', [ItemController::class, 'toggleFavorite'])->where('id', '[0-9]+');
+        Route::get('{id}/related', [ItemController::class, 'getRelated'])->where('id', '[0-9]+');
     });
 
     // ================================

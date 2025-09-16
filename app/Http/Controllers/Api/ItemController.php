@@ -516,17 +516,25 @@ class ItemController extends Controller
         }
     }
 
-    public function getMyListings()
+    public function getMyListings(): JsonResponse
     {
-        $items = Item::with(['images', 'category'])
-            ->where('user_id', Auth::id())
-            ->latest()
-            ->get();
+        try {
+            $items = Item::with(['images', 'category'])
+                ->where('user_id', Auth::id())
+                ->latest()
+                ->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => $items
-        ]);
+            return response()->json([
+                'success' => true,
+                'data' => $items
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch listings',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     public function updateStatus(Request $request, $id)
