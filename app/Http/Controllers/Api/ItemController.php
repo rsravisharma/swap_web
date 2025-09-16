@@ -149,11 +149,13 @@ class ItemController extends Controller
      * Get item detail
      * GET /items/{id}
      */
+    // For viewing any item (public view)
     public function show(Item $item): JsonResponse
     {
         try {
-            // Check if user owns the item
-            if ($item->user_id !== Auth::id()) {
+            // Don't check ownership - any user can view items
+            // But ensure item is active (unless it's the owner viewing)
+            if ($item->status !== 'active' && $item->user_id !== Auth::id()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Item not found'
@@ -167,8 +169,42 @@ class ItemController extends Controller
                 'images'
             ]);
 
-            // Add to view history
-            HistoryService::addViewHistory(Auth::id(), $item->id, $item->title);
+            // Add to view history (only if not viewing own item)
+            if ($item->user_id !== Auth::id()) {
+                HistoryService::addViewHistory(Auth::id(), $item->id, $item->title);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $item
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch item details',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // Add a new method for editing (owner-only access)
+    public function edit(Item $item): JsonResponse
+    {
+        try {
+            // Check if user owns the item for editing
+            if ($item->user_id !== Auth::id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item not found'
+                ], 404);
+            }
+
+            // Load relationships
+            $item->load([
+                'user:id,name,profile_image,university,course',
+                'category',
+                'images'
+            ]);
 
             return response()->json([
                 'success' => true,

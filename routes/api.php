@@ -186,7 +186,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('purchases/{purchaseId}/cancel', [ItemController::class, 'cancelOrder']);
 
         // Parameterized routes (NO CONSTRAINTS for now)
-        Route::get('{id}', [ItemController::class, 'show']);
+        Route::get('{id}', [ItemController::class, 'show']); // Public view
+        Route::get('{id}/edit', [ItemController::class, 'edit']); // Owner-only view for editing
         Route::put('{id}', [ItemController::class, 'update']);
         Route::delete('{id}', [ItemController::class, 'destroy']);
 
