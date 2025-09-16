@@ -176,7 +176,7 @@ class SearchController extends Controller
             if (Auth::check()) {
                 $userId = Auth::id();
                 $favoriteIds = Favorite::where('user_id', $userId)
-                    ->pluck('product_id')
+                    ->pluck('item_id')
                     ->toArray();
 
                 $results->each(function ($item) use ($favoriteIds) {
@@ -739,7 +739,7 @@ class SearchController extends Controller
     public function toggleFavorite(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'product_id' => 'required|integer|exists:products,id'
+            'item_id' => 'required|integer|exists:items,id'
         ]);
 
         if ($validator->fails()) {
@@ -751,10 +751,10 @@ class SearchController extends Controller
 
         try {
             $user = Auth::user();
-            $productId = $request->product_id;
+            $itemId = $request->item_id;
 
             $favorite = Favorite::where('user_id', $user->id)
-                ->where('product_id', $productId)
+                ->where('item_id', $itemId)
                 ->first();
 
             if ($favorite) {
@@ -764,7 +764,7 @@ class SearchController extends Controller
             } else {
                 Favorite::create([
                     'user_id' => $user->id,
-                    'product_id' => $productId
+                    'item_id' => $itemId
                 ]);
                 $message = 'Added to favorites';
                 $isFavorited = true;

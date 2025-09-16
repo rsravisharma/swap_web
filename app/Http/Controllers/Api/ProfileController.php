@@ -527,7 +527,7 @@ class ProfileController extends Controller
             $user = Auth::user();
             
             $favorite = Favorite::where('user_id', $user->id)
-                ->where('product_id', $itemId)
+                ->where('item_id', $itemId)
                 ->first();
 
             if (!$favorite) {
