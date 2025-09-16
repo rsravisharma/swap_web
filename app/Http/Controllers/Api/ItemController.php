@@ -153,32 +153,51 @@ class ItemController extends Controller
     public function show(Item $item): JsonResponse
     {
         try {
-            // Don't check ownership - any user can view items
-            // But ensure item is active (unless it's the owner viewing)
+            // DEBUG: Log authentication info
+            \Log::info('Auth Debug:', [
+                'auth_id' => Auth::id(),
+                'auth_user' => Auth::user() ? Auth::user()->toArray() : null,
+                'item_user_id' => $item->user_id,
+                'item_id' => $item->id,
+                'request_headers' => request()->headers->all()
+            ]);
+
+            // Check if item is active (unless owner is viewing)
             if ($item->status !== 'active' && $item->user_id !== Auth::id()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Item not found'
+                    'message' => 'Item not found - inactive'
                 ], 404);
             }
 
             // Load relationships
             $item->load([
-                'user:id,name,profile_image,university,course',
+                'user:id,name,profile_image',
                 'category',
                 'images'
             ]);
 
-            // Add to view history (only if not viewing own item)
+            // Add view history if not owner
             if ($item->user_id !== Auth::id()) {
                 HistoryService::addViewHistory(Auth::id(), $item->id, $item->title);
             }
 
             return response()->json([
                 'success' => true,
-                'data' => $item
+                'data' => $item,
+                'debug' => [
+                    'auth_id' => Auth::id(),
+                    'item_user_id' => $item->user_id,
+                    'is_owner' => $item->user_id === Auth::id()
+                ]
             ]);
         } catch (\Exception $e) {
+            \Log::error('Show item error:', [
+                'error' => $e->getMessage(),
+                'item_id' => $item->id,
+                'auth_id' => Auth::id()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch item details',
@@ -186,7 +205,6 @@ class ItemController extends Controller
             ], 500);
         }
     }
-
     // Add a new method for editing (owner-only access)
     public function edit(Item $item): JsonResponse
     {
