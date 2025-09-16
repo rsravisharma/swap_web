@@ -150,23 +150,33 @@ class ItemController extends Controller
      * GET /items/{id}
      */
     // For viewing any item (public view)
-    public function show(Item $item): JsonResponse
+    public function show($id): JsonResponse // Change from Item $item to $id
     {
         try {
-            // DEBUG: Log authentication info
-            \Log::info('Auth Debug:', [
-                'auth_id' => Auth::id(),
-                'auth_user' => Auth::user() ? Auth::user()->toArray() : null,
-                'item_user_id' => $item->user_id,
-                'item_id' => $item->id,
-                'request_headers' => request()->headers->all()
+            \Log::info('Show method called with ID:', ['id' => $id]);
+
+            // Manual find instead of route model binding
+            $item = Item::find($id);
+
+            \Log::info('Item found:', [
+                'item_exists' => $item ? true : false,
+                'item_id' => $item ? $item->id : null,
+                'item_user_id' => $item ? $item->user_id : null,
+                'auth_id' => Auth::id()
             ]);
+
+            if (!$item) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item not found in database'
+                ], 404);
+            }
 
             // Check if item is active (unless owner is viewing)
             if ($item->status !== 'active' && $item->user_id !== Auth::id()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Item not found - inactive'
+                    'message' => 'Item not active and not owner'
                 ], 404);
             }
 
@@ -184,17 +194,12 @@ class ItemController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $item,
-                'debug' => [
-                    'auth_id' => Auth::id(),
-                    'item_user_id' => $item->user_id,
-                    'is_owner' => $item->user_id === Auth::id()
-                ]
+                'data' => $item
             ]);
         } catch (\Exception $e) {
             \Log::error('Show item error:', [
                 'error' => $e->getMessage(),
-                'item_id' => $item->id,
+                'id' => $id,
                 'auth_id' => Auth::id()
             ]);
 
