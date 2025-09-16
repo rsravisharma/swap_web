@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Models\ItemImage;
 use App\Http\Controllers\{
     EmailVerificationController
 };
@@ -178,6 +179,17 @@ Route::post('/agreeTermsAndCondition', 'SupportController@agreeTermsAndCondition
 Route::post('/reportIssue', 'SupportController@reportIssue');
 Route::get('/faq', 'SupportController@faq');
 Route::post('/contactUs', 'SupportController@contactUs');
+
+Route::get('/item-image/{id}', function($id) {
+    $image = ItemImage::findOrFail($id);
+    $path = storage_path('app/' . $image->image_path);
+    
+    if (!file_exists($path)) {
+        abort(404);
+    }
+    
+    return response()->file($path);
+})->name('item.image');
 
 Route::get('/clear-cache', function () {
     Artisan::call('config:clear');

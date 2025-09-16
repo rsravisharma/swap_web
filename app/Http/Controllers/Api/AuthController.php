@@ -550,7 +550,7 @@ class AuthController extends Controller
                             'course' => $existingUser->course,
                             'semester' => $existingUser->semester,
                             'is_verified' => true,
-                            'student_verified' => $existingUser->student_verified ?? false,
+                            'student_verified' => $existingUser->student_verified ?? true,
                         ],
                         'token' => $token
                     ]);

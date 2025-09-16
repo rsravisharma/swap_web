@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Item;
+use App\Models\ItemImage;
 use App\Services\HistoryService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -46,7 +47,7 @@ class ItemController extends Controller
                 $search = $request->input('search');
                 $query->where(function ($q) use ($search) {
                     $q->where('title', 'like', "%{$search}%")
-                      ->orWhere('description', 'like', "%{$search}%");
+                        ->orWhere('description', 'like', "%{$search}%");
                 });
             }
 
@@ -87,7 +88,6 @@ class ItemController extends Controller
                     'has_more' => $items->hasMorePages(),
                 ]
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -120,8 +120,8 @@ class ItemController extends Controller
                 ->where('status', 'active')
                 ->where(function ($q) use ($query) {
                     $q->where('title', 'like', "%{$query}%")
-                      ->orWhere('description', 'like', "%{$query}%")
-                      ->orWhere('category', 'like', "%{$query}%");
+                        ->orWhere('description', 'like', "%{$query}%")
+                        ->orWhere('category', 'like', "%{$query}%");
                 })
                 ->orderBy('created_at', 'desc')
                 ->limit(50)
@@ -135,7 +135,6 @@ class ItemController extends Controller
                 'data' => $items,
                 'total_results' => $items->count()
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -172,7 +171,6 @@ class ItemController extends Controller
                 'success' => true,
                 'data' => $item
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -211,8 +209,13 @@ class ItemController extends Controller
 
         try {
             $data = $request->only([
-                'title', 'description', 'category', 'price', 
-                'condition', 'location', 'contact_method'
+                'title',
+                'description',
+                'category',
+                'price',
+                'condition',
+                'location',
+                'contact_method'
             ]);
             $data['user_id'] = Auth::id();
             $data['status'] = 'active';
@@ -238,7 +241,6 @@ class ItemController extends Controller
                 'data' => $item->load(['user', 'category', 'images']),
                 'message' => 'Item created successfully'
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -284,8 +286,14 @@ class ItemController extends Controller
 
         try {
             $updateData = $request->only([
-                'title', 'description', 'category', 'price', 
-                'condition', 'location', 'contact_method', 'tags'
+                'title',
+                'description',
+                'category',
+                'price',
+                'condition',
+                'location',
+                'contact_method',
+                'tags'
             ]);
 
             $item->update($updateData);
@@ -303,7 +311,6 @@ class ItemController extends Controller
                 'data' => $item->load(['user', 'category', 'images']),
                 'message' => 'Item updated successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -351,7 +358,6 @@ class ItemController extends Controller
                 'success' => true,
                 'message' => 'Item deleted successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -396,7 +402,6 @@ class ItemController extends Controller
                 'data' => $item,
                 'message' => 'Item marked as sold successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -441,7 +446,6 @@ class ItemController extends Controller
                 'data' => $item,
                 'message' => 'Item archived successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -504,7 +508,6 @@ class ItemController extends Controller
                 'data' => $item,
                 'message' => 'Item promoted successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -517,16 +520,27 @@ class ItemController extends Controller
     /**
      * Handle image uploads for item
      */
-    private function handleImageUploads($item, $images)
+    private function handleImageUploads(Item $item, array $images)
     {
+        $userId = Auth::id();
+        $itemId = $item->id;
+
         foreach ($images as $index => $image) {
-            $path = $image->store('items/' . $item->id, 'public');
-            
-            $item->images()->create([
-                'path' => $path,
-                'url' => Storage::url($path),
+            $extension = $image->getClientOriginalExtension();
+            $filename = time() . '_' . uniqid() . '_' . $index . '.' . $extension;
+
+            // Store in storage/app/public/items/user_{userId}/item_{itemId}/
+            $directory = "items/user_{$userId}/item_{$itemId}";
+            $path = $image->storeAs($directory, $filename, 'public');
+
+            ItemImage::create([
+                'item_id' => $item->id,
+                'image_path' => $path,
+                'filename' => $filename,
+                'file_size' => $image->getSize(),
+                'mime_type' => $image->getMimeType(),
+                'order' => $index + 1,
                 'is_primary' => $index === 0,
-                'order' => $index,
             ]);
         }
     }
