@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Item;
 use App\Models\ItemImage;
+use App\Models\Favorite;
 use App\Services\HistoryService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -510,6 +511,126 @@ class ItemController extends Controller
                 'order' => $index + 1,
                 'is_primary' => $index === 0,
             ]);
+        }
+    }
+
+    public function getMyListings()
+    {
+        $items = Item::with(['images', 'category'])
+            ->where('user_id', Auth::id())
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $items
+        ]);
+    }
+
+    public function updateStatus(Request $request, $id)
+    {
+        $item = Item::where('user_id', Auth::id())->findOrFail($id);
+
+        $request->validate([
+            'status' => 'required|in:active,sold,archived'
+        ]);
+
+        $item->update(['status' => $request->status]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $item
+        ]);
+    }
+
+    public function getFavorites()
+    {
+        // You'll need to create a Favorite model that references items
+        $favorites = Favorite::with(['item.images', 'item.user'])
+            ->where('user_id', Auth::id())
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $favorites
+        ]);
+    }
+
+    public function toggleFavorite($id)
+    {
+        $item = Item::findOrFail($id);
+
+        $favorite = Favorite::where([
+            'user_id' => Auth::id(),
+            'item_id' => $id
+        ])->first();
+
+        if ($favorite) {
+            $favorite->delete();
+            $favorited = false;
+        } else {
+            Favorite::create([
+                'user_id' => Auth::id(),
+                'item_id' => $id
+            ]);
+            $favorited = true;
+        }
+
+        return response()->json([
+            'success' => true,
+            'favorited' => $favorited
+        ]);
+    }
+
+    public function getRelated($id)
+    {
+        $item = Item::findOrFail($id);
+
+        $related = Item::where('category', $item->category)
+            ->where('id', '!=', $id)
+            ->where('status', 'active')
+            ->with(['images', 'user'])
+            ->limit(10)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $related
+        ]);
+    }
+
+    public function getUserItems(string $userId): JsonResponse
+    {
+        try {
+            $items = Item::where('user_id', $userId)
+                ->where('status', 'active')
+                ->with(['user:id,name,profile_image', 'images'])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            // Add favorite status for authenticated user
+            if (Auth::check()) {
+                $authUserId = Auth::id();
+                $favoriteIds = Favorite::where('user_id', $authUserId)
+                    ->pluck('item_id')
+                    ->toArray();
+
+                $items->each(function ($item) use ($favoriteIds) {
+                    $item->is_favorited = in_array($item->id, $favoriteIds);
+                });
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $items
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch user items',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 }

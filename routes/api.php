@@ -5,7 +5,6 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\{
     AuthController,
     CategoryController,
-    ProductController,
     SearchController,
     LocationController,
     ChatController,
@@ -170,15 +169,34 @@ Route::middleware('auth:sanctum')->group(function () {
     // ITEMS ROUTES
     // ================================
     Route::prefix('items')->group(function () {
+        // Basic CRUD
         Route::get('/', [ItemController::class, 'index']);
         Route::post('/', [ItemController::class, 'store']);
         Route::get('search', [ItemController::class, 'search']);
         Route::get('{id}', [ItemController::class, 'show']);
         Route::put('{id}', [ItemController::class, 'update']);
         Route::delete('{id}', [ItemController::class, 'destroy']);
+
+        // Item-specific actions
         Route::post('{id}/promote', [ItemController::class, 'promote']);
         Route::post('{id}/mark-sold', [ItemController::class, 'markAsSold']);
         Route::post('{id}/archive', [ItemController::class, 'archive']);
+
+        // User-specific actions
+        Route::get('my-listings', [ItemController::class, 'getMyListings']);
+        Route::patch('{id}/status', [ItemController::class, 'updateStatus']);
+
+        // Favorites
+        Route::get('favorites', [ItemController::class, 'getFavorites']);
+        Route::post('{id}/toggle-favorite', [ItemController::class, 'toggleFavorite']);
+        Route::delete('favorites/clear', [ItemController::class, 'clearAllFavorites']);
+
+        // Related items
+        Route::get('{id}/related', [ItemController::class, 'getRelated']);
+
+        // Purchases
+        Route::get('my-purchases', [ItemController::class, 'getMyPurchases']);
+        Route::post('purchases/{purchaseId}/cancel', [ItemController::class, 'cancelOrder']);
     });
 
     // ================================
@@ -259,28 +277,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('history', [PaymentController::class, 'getPaymentHistory']);
         Route::get('{paymentId}', [PaymentController::class, 'getPaymentDetails']);
         Route::post('{paymentId}/refund', [PaymentController::class, 'refundPayment']);
-    });
-
-    // ================================
-    // PRODUCT ROUTES
-    // ================================
-    Route::prefix('products')->group(function () {
-        Route::get('/', [ProductController::class, 'getProducts']);
-        Route::get('listings/{listingId}', [ProductController::class, 'getListingDetails']);
-        Route::put('listings/{listingId}', [ProductController::class, 'updateListing']);
-
-        Route::get('favorites', [ProductController::class, 'getFavoriteProducts']);
-        Route::post('{productId}/toggle-favorite', [ProductController::class, 'toggleFavorite']);
-        Route::delete('favorites/clear', [ProductController::class, 'clearAllFavorites']);
-
-        Route::get('my-listings', [ProductController::class, 'getMyListings']);
-        Route::delete('listings/{itemId}', [ProductController::class, 'deleteListing']);
-        Route::patch('listings/{itemId}/status', [ProductController::class, 'updateListingStatus']);
-
-        Route::get('my-purchases', [ProductController::class, 'getMyPurchases']);
-        Route::post('purchases/{purchaseId}/cancel', [ProductController::class, 'cancelOrder']);
-
-        Route::get('{productId}/related', [ProductController::class, 'getRelatedProducts']);
     });
 
     // ================================
@@ -378,7 +374,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('{userId}', [ProfileController::class, 'getUserDetails']);
         Route::post('{userId}/follow', [ProfileController::class, 'toggleFollow']);
         Route::post('{userId}/block', [ProfileController::class, 'toggleBlock']);
-        Route::get('{userId}/items', [ProductController::class, 'getUserItems']);
+        Route::get('{userId}/items', [ItemController::class, 'getUserItems']);
 
         Route::get('top-sellers', [SocialController::class, 'getTopSellers']);
     });
