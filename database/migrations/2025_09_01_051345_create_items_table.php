@@ -16,6 +16,8 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('title');
             $table->text('description');
+            $table->foreignId('category_id')->nullable()->constrained('categories')->cascadeOnDelete();
+            $table->index('category_id');
             $table->string('category');
             $table->decimal('price', 10, 2);
             $table->enum('condition', ['new', 'like_new', 'good', 'fair', 'poor']);
