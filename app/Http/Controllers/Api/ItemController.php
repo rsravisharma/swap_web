@@ -149,21 +149,23 @@ class ItemController extends Controller
      * Get item detail
      * GET /items/{id}
      */
-    public function show(int $id): JsonResponse
+    public function show(Item $item): JsonResponse
     {
         try {
-            $item = Item::with([
-                'user:id,name,profile_image,university,course',
-                'category',
-                'images'
-            ])->where('id', $id)->where('user_id', Auth::id())->first();
-
-            if (!$item) {
+            // Check if user owns the item
+            if ($item->user_id !== Auth::id()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Item not found'
                 ], 404);
             }
+
+            // Load relationships
+            $item->load([
+                'user:id,name,profile_image,university,course',
+                'category',
+                'images'
+            ]);
 
             // Add to view history
             HistoryService::addViewHistory(Auth::id(), $item->id, $item->title);
@@ -624,7 +626,6 @@ class ItemController extends Controller
                 'success' => true,
                 'data' => $items
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
