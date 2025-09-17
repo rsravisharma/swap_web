@@ -139,9 +139,20 @@ class ProfileController extends Controller
 
             // Update user fields
             $fillableFields = [
-                'name', 'email', 'phone', 'university', 'course', 'semester', 
-                'bio', 'date_of_birth', 'gender', 'city', 'state', 'country', 
-                'postal_code', 'student_id'
+                'name',
+                'email',
+                'phone',
+                'university',
+                'course',
+                'semester',
+                'bio',
+                'date_of_birth',
+                'gender',
+                'city',
+                'state',
+                'country',
+                'postal_code',
+                'student_id'
             ];
 
             foreach ($fillableFields as $field) {
@@ -169,14 +180,22 @@ class ProfileController extends Controller
         }
     }
 
+    public function getCurrentUserStats(): JsonResponse
+    {
+        return $this->getUserStats(null);
+    }
+
     /**
      * Get user statistics
      * GET /profile/stats or GET /profile/stats/{userId}
      */
-    public function getUserStats(string $userId = null): JsonResponse
+    public function getUserStats(?string $userId = null): JsonResponse
     {
         try {
             $targetUserId = $userId ?: Auth::id();
+
+            // Debug logging
+            Log::info('Getting stats for user ID: ' . $targetUserId);
 
             $listings = Item::where('user_id', $targetUserId)->count();
             $sold = Item::where('user_id', $targetUserId)->where('status', 'sold')->count();
@@ -184,27 +203,32 @@ class ProfileController extends Controller
             $followers = UserFollow::where('followed_id', $targetUserId)->count();
             $following = UserFollow::where('follower_id', $targetUserId)->count();
 
-            // Get rating from user model (you already have seller_rating field)
+            // Get rating from user model
             $user = User::find($targetUserId);
-            $rating = $user ? $user->seller_rating : 0.0;
+            $rating = $user ? (float) $user->seller_rating : 0.0;
+
+            $stats = [
+                'listings' => $listings,
+                'sold' => $sold,
+                'purchases' => $purchases,
+                'followers' => $followers,
+                'following' => $following,
+                'rating' => $rating,
+                'total_earnings' => $user ? (float) $user->total_earnings : 0.0,
+                'total_spent' => $user ? (float) $user->total_spent : 0.0,
+                'items_sold' => $user ? $user->items_sold : 0,
+                'items_bought' => $user ? $user->items_bought : 0,
+                'total_reviews' => $user ? $user->total_reviews : 0,
+            ];
+
+            Log::info('Stats calculated: ', $stats);
 
             return response()->json([
                 'success' => true,
-                'data' => [
-                    'listings' => $listings,
-                    'sold' => $sold,
-                    'purchases' => $purchases,
-                    'followers' => $followers,
-                    'following' => $following,
-                    'rating' => $rating,
-                    'total_earnings' => $user ? $user->total_earnings : 0,
-                    'total_spent' => $user ? $user->total_spent : 0,
-                    'items_sold' => $user ? $user->items_sold : 0,
-                    'items_bought' => $user ? $user->items_bought : 0,
-                    'total_reviews' => $user ? $user->total_reviews : 0,
-                ]
+                'data' => $stats
             ]);
         } catch (\Exception $e) {
+            Log::error('Failed to fetch user stats: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch user stats',
@@ -221,7 +245,7 @@ class ProfileController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Return student-related fields from user model
             $studentData = [
                 'university' => $user->university,

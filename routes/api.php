@@ -106,22 +106,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('chats')->group(function () {
         Route::get('/', [CommunicationController::class, 'getChats']);
         Route::get('unread-count', [CommunicationController::class, 'getUnreadMessageCount']);
-        
+
         Route::get('{chatId}/messages', [CommunicationController::class, 'getChatMessages']);
         Route::get('{chatId}/messages/search', [CommunicationController::class, 'searchMessages']);
         Route::get('{chatId}/offers', [CommunicationController::class, 'getOfferHistory']);
-        
+
         Route::post('{chatId}/messages', [CommunicationController::class, 'sendMessage']);
         Route::post('{chatId}/typing', [CommunicationController::class, 'sendTypingIndicator']);
         Route::post('{chatId}/offers', [CommunicationController::class, 'sendOffer']);
         Route::post('{chatId}/report', [CommunicationController::class, 'reportChat']);
-        
+
         Route::put('{chatId}/mark-read', [CommunicationController::class, 'markChatAsRead']);
         Route::put('{chatId}/archive', [CommunicationController::class, 'updateChatArchiveStatus']);
         Route::put('{chatId}/messages/{messageId}', [CommunicationController::class, 'editMessage']);
         Route::put('{chatId}/offers/{messageId}/accept', [CommunicationController::class, 'acceptOffer']);
         Route::put('{chatId}/offers/{messageId}/reject', [CommunicationController::class, 'rejectOffer']);
-        
+
         Route::delete('{chatId}', [CommunicationController::class, 'deleteChat']);
         Route::delete('{chatId}/messages/{messageId}', [CommunicationController::class, 'deleteMessage']);
     });
@@ -136,18 +136,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('notifications')->group(function () {
         Route::get('/', [NotificationController::class, 'getNotifications']);
         Route::get('preferences', [NotificationController::class, 'getPreferences']);
-        
+
         Route::post('token', [NotificationController::class, 'updateToken']);
         Route::post('test', [NotificationController::class, 'testNotification']);
         Route::post('subscribe', [NotificationController::class, 'subscribeToTopic']);
         Route::post('unsubscribe', [NotificationController::class, 'unsubscribeFromTopic']);
         Route::post('send-topic', [NotificationController::class, 'sendTopicNotification'])
             ->middleware('admin');
-        
+
         Route::put('preferences', [NotificationController::class, 'updatePreferences']);
         Route::put('mark-all-read', [NotificationController::class, 'markAllAsRead']);
         Route::put('{id}/read', [NotificationController::class, 'markAsRead']);
-        
+
         Route::delete('clear-all', [NotificationController::class, 'clearAllNotifications']);
         Route::delete('{id}', [NotificationController::class, 'deleteNotification']);
     });
@@ -159,12 +159,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/', [HistoryController::class, 'index']);
         Route::get('stats', [HistoryController::class, 'getStats']);
         Route::get('categories', [HistoryController::class, 'getCategories']);
-        
+
         Route::post('/', [HistoryController::class, 'store']);
-        
+
         Route::delete('/', [HistoryController::class, 'clear']);
         Route::delete('bulk', [HistoryController::class, 'bulkDelete']);
-        
+
         // Parameter routes last
         Route::get('{id}', [HistoryController::class, 'show']);
         Route::delete('{id}', [HistoryController::class, 'destroy']);
@@ -180,26 +180,26 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('my-listings', [ItemController::class, 'getMyListings']);
         Route::get('favorites', [ItemController::class, 'getFavorites']);
         Route::get('my-purchases', [ItemController::class, 'getMyPurchases']);
-        
+
         Route::post('/', [ItemController::class, 'store']);
-        
+
         Route::delete('favorites/clear', [ItemController::class, 'clearAllFavorites']);
         Route::post('purchases/{purchaseId}/cancel', [ItemController::class, 'cancelOrder']);
-        
+
         // Multi-segment parameter routes
         Route::get('{item}/edit', [ItemController::class, 'edit']);
         Route::get('{item}/related', [ItemController::class, 'getRelated']);
-        
+
         Route::post('{item}/promote', [ItemController::class, 'promote']);
         Route::post('{item}/mark-sold', [ItemController::class, 'markAsSold']);
         Route::post('{item}/archive', [ItemController::class, 'archive']);
         Route::post('{item}/toggle-favorite', [ItemController::class, 'toggleFavorite']);
-        
+
         Route::put('{item}', [ItemController::class, 'update']);
         Route::patch('{item}/status', [ItemController::class, 'updateStatus']);
-        
+
         Route::delete('{item}', [ItemController::class, 'destroy']);
-        
+
         // Single parameter route last
         Route::get('{item}', [ItemController::class, 'show']);
     });
@@ -223,7 +223,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('notification-settings', [UserController::class, 'getNotificationSettings']);
         Route::get('preferences', [OfferController::class, 'getUserPreferences']);
         Route::get('profile', [SupportController::class, 'getUserProfile']);
-        
+
         Route::post('recent-locations', [LocationController::class, 'saveRecentLocation']);
         Route::put('notification-settings', [UserController::class, 'updateNotificationSettings']);
     });
@@ -273,14 +273,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('methods', [PaymentController::class, 'getPaymentMethods']);
         Route::get('saved-cards', [PaymentController::class, 'getSavedPaymentMethods']);
         Route::get('history', [PaymentController::class, 'getPaymentHistory']);
-        
+
         Route::post('add-method', [PaymentController::class, 'addPaymentMethod']);
         Route::post('process', [PaymentController::class, 'processPayment']);
         Route::post('validate-card', [PaymentController::class, 'validateCard']);
-        
+
         Route::put('methods/{cardId}', [PaymentController::class, 'updatePaymentMethod']);
         Route::delete('methods/{cardId}', [PaymentController::class, 'deletePaymentMethod']);
-        
+
         Route::get('{paymentId}', [PaymentController::class, 'getPaymentDetails']);
         Route::post('{paymentId}/refund', [PaymentController::class, 'refundPayment']);
     });
@@ -293,13 +293,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('student', [ProfileController::class, 'getStudentProfile']);
         Route::get('earnings', [ProfileController::class, 'getEarningsHistory']);
         Route::get('wishlist', [ProfileController::class, 'getWishlist']);
-        Route::get('stats/{userId?}', [ProfileController::class, 'getUserStats']);
-        
+        // Two separate routes instead of optional parameter
+        Route::get('stats', [ProfileController::class, 'getCurrentUserStats']);
+        Route::get('stats/{userId}', [ProfileController::class, 'getUserStats']);
+
         Route::put('/', [ProfileController::class, 'updateProfile']);
-        
+
         Route::post('upload-student-id', [ProfileController::class, 'uploadStudentId']);
         Route::post('verification', [ProfileController::class, 'submitStudentVerification']);
-        
+
         Route::delete('wishlist/{itemId}', [ProfileController::class, 'removeFromWishlist']);
     });
 
@@ -310,7 +312,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('blocked-users', [SafetyController::class, 'getBlockedUsers']);
         Route::get('stats', [SafetyController::class, 'getSafetyStats']);
         Route::get('is-blocked/{userId}', [SafetyController::class, 'isUserBlocked']);
-        
+
         Route::post('block-user', [SafetyController::class, 'blockUser']);
         Route::post('unblock-user', [SafetyController::class, 'unblockUser']);
         Route::post('report-user', [SafetyController::class, 'reportUser']);
@@ -330,19 +332,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('quick-suggestions', [SearchController::class, 'getQuickSuggestions']);
         Route::get('trending', [SearchController::class, 'getTrendingSearches']);
         Route::get('popular', [SearchController::class, 'getPopularSearches']);
-        
+
         Route::post('filtered', [SearchController::class, 'getFilteredItems']);
         Route::post('record', [SearchController::class, 'recordSearch']);
         Route::post('favorites/toggle', [SearchController::class, 'toggleFavorite']);
         Route::post('users/follow/toggle', [SearchController::class, 'toggleFollowUser']);
-        
+
         Route::get('categories/{categoryId}/subcategories', [SearchController::class, 'getSubCategories']);
-        
+
         Route::prefix('filters')->group(function () {
             Route::get('locations', [SearchController::class, 'getAvailableLocations']);
             Route::get('universities', [SearchController::class, 'getAvailableUniversities']);
         });
-        
+
         Route::prefix('history')->group(function () {
             Route::get('recent', [SearchController::class, 'getRecentSearches']);
             Route::post('save', [SearchController::class, 'saveSearchHistory']);
@@ -357,13 +359,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/', [SettingsController::class, 'getAllSettings']);
         Route::get('language', [SettingsController::class, 'getUserLanguage']);
         Route::get('options', [SettingsController::class, 'getSettingsOptions']);
-        
+
         Route::post('language', [SettingsController::class, 'saveUserLanguage']);
-        
+
         Route::put('/', [SettingsController::class, 'updateSettings']);
-        
+
         Route::delete('/', [SettingsController::class, 'resetAllSettings']);
-        
+
         // Parameter routes last
         Route::get('{key}', [SettingsController::class, 'getSetting']);
         Route::put('{key}', [SettingsController::class, 'updateSetting']);
@@ -376,21 +378,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('users')->group(function () {
         // Static routes first
         Route::get('top-sellers', [SocialController::class, 'getTopSellers']);
-        
+
         // Multi-segment parameter routes
         Route::get('{userId}/followers', [SocialController::class, 'getFollowers']);
         Route::get('{userId}/following', [SocialController::class, 'getFollowing']);
         Route::get('{userId}/ratings', [SocialController::class, 'getUserRatings']);
         Route::get('{userId}/items', [ItemController::class, 'getUserItems']);
-        
+
         // POST/DELETE routes
         Route::post('{userId}/toggle-follow', [SocialController::class, 'toggleFollow']);
         Route::post('{userId}/follow', [ProfileController::class, 'toggleFollow']);
         Route::post('{userId}/block', [CommunicationController::class, 'blockUser']);
         Route::post('{userId}/unblock', [CommunicationController::class, 'unblockUser']);
-        
+
         Route::delete('followers/{userId}', [SocialController::class, 'removeFollower']);
-        
+
         // Single parameter route last
         Route::get('{userId}', [ProfileController::class, 'getUserDetails']);
     });
@@ -412,13 +414,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('announcements', [SupportController::class, 'getAnnouncements']);
         Route::get('popular-topics', [SupportController::class, 'getPopularTopics']);
         Route::get('requests/my-requests', [SupportController::class, 'getMySupportRequests']);
-        
+
         Route::post('requests', [SupportController::class, 'submitSupportRequest']);
         Route::post('feedback', [SupportController::class, 'submitFeedback']);
         Route::post('bug-reports', [SupportController::class, 'submitBugReport']);
         Route::post('feature-requests', [SupportController::class, 'submitFeatureRequest']);
         Route::post('faqs/{faqId}/helpful', [SupportController::class, 'markFaqHelpful']);
-        
+
         Route::get('requests/{requestId}', [SupportController::class, 'getSupportRequestDetails']);
         Route::post('requests/{requestId}/rate', [SupportController::class, 'rateSupportExperience']);
     });
