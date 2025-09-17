@@ -301,8 +301,15 @@ class ItemController extends Controller
         }
 
         // Debug incoming request
-        Log::info('Update request data: ', $request->all());
-        Log::info('Tags in request: ', $request->input('tags', []));
+        Log::info('Update request all data: ', $request->all());
+        Log::info('Request files: ', array_keys($request->allFiles()));
+
+        // Check if request has tags
+        $hasTags = $request->has('tags') && is_array($request->input('tags'));
+        Log::info('Has tags: ' . ($hasTags ? 'Yes' : 'No'));
+        if ($hasTags) {
+            Log::info('Tags in request: ', $request->input('tags'));
+        }
 
         $validator = Validator::make($request->all(), [
             'title' => 'sometimes|required|string|max:255',
@@ -314,6 +321,7 @@ class ItemController extends Controller
             'contact_method' => 'nullable|string|in:chat,phone,email',
             'tags' => 'nullable|array',
             'tags.*' => 'string|max:50',
+            'tags_empty' => 'nullable|string',
             'existing_images' => 'nullable|array',
             'existing_images.*' => 'string',
             'new_images' => 'nullable|array|max:10',
@@ -341,13 +349,13 @@ class ItemController extends Controller
             ]);
 
             // Handle tags
-            $tags = $request->input('tags', []);
-            Log::info('Processing tags: ', $tags);
-
-            if (is_array($tags)) {
-                $updateData['tags'] = json_encode($tags); // Store as JSON string
+            if ($request->has('tags') && is_array($request->input('tags'))) {
+                $tags = array_filter($request->input('tags')); // Remove empty values
+                $updateData['tags'] = json_encode($tags);
+                Log::info('Saving tags as JSON: ' . json_encode($tags));
             } else {
                 $updateData['tags'] = json_encode([]);
+                Log::info('No tags provided, saving empty array');
             }
 
             Log::info('Final update data: ', $updateData);
@@ -359,9 +367,12 @@ class ItemController extends Controller
             // Add to history
             HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'update');
 
+            $updatedItem = $item->fresh()->load(['user', 'images']);
+            Log::info('Updated item tags: ' . $updatedItem->tags);
+
             return response()->json([
                 'success' => true,
-                'data' => $item->fresh()->load(['user', 'images']),
+                'data' => $updatedItem,
                 'message' => 'Item updated successfully'
             ]);
         } catch (\Exception $e) {
@@ -373,7 +384,6 @@ class ItemController extends Controller
             ], 500);
         }
     }
-
     private function updateItemImages(Item $item, Request $request)
     {
         $existingImages = $request->input('existing_images', []);
