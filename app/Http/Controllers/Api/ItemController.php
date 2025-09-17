@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class ItemController extends Controller
 {
@@ -309,6 +310,10 @@ class ItemController extends Controller
             'contact_method' => 'nullable|string|in:chat,phone,email',
             'tags' => 'nullable|array',
             'tags.*' => 'string|max:50',
+            'existing_images' => 'nullable|array',
+            'existing_images.*' => 'string',
+            'new_images' => 'nullable|array|max:10',
+            'new_images.*' => 'image|mimes:jpeg,png,jpg|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -319,6 +324,7 @@ class ItemController extends Controller
         }
 
         try {
+            // Update basic item data
             $updateData = $request->only([
                 'title',
                 'description',
@@ -326,21 +332,30 @@ class ItemController extends Controller
                 'price',
                 'condition',
                 'location',
-                'contact_method',
-                'tags'
+                'contact_method'
             ]);
 
+            // Handle tags
+            if ($request->has('tags')) {
+                $updateData['tags'] = $request->input('tags', []);
+            }
+
+            Log::info('Updating item with data: ', $updateData);
             $item->update($updateData);
+
+            // Handle image updates
+            $this->updateItemImages($item, $request);
 
             // Add to history
             HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'update');
 
             return response()->json([
                 'success' => true,
-                'data' => $item->load(['user', 'category', 'images']),
+                'data' => $item->fresh()->load(['user', 'images']), // Use fresh() to reload
                 'message' => 'Item updated successfully'
             ]);
         } catch (\Exception $e) {
+            Log::error('Failed to update item: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update item',
@@ -348,6 +363,53 @@ class ItemController extends Controller
             ], 500);
         }
     }
+
+    private function updateItemImages(Item $item, Request $request)
+    {
+        $existingImages = $request->input('existing_images', []);
+        $newImages = $request->file('new_images', []);
+
+        Log::info('Existing images to keep: ', $existingImages);
+        Log::info('New images to add: ' . count($newImages));
+
+        // Get current image paths that should be kept
+        $imagesToKeep = [];
+        foreach ($existingImages as $imageUrl) {
+            if (strpos($imageUrl, '/storage/') !== false) {
+                // Extract the path from the full URL
+                $path = str_replace(url('/storage/'), '', $imageUrl);
+                $imagesToKeep[] = $path;
+            }
+        }
+
+        // Delete images that are not in the keep list
+        $currentImages = $item->images;
+        foreach ($currentImages as $currentImage) {
+            if (!in_array($currentImage->image_path, $imagesToKeep)) {
+                // Delete the file
+                Storage::disk('public')->delete($currentImage->image_path);
+                // Delete the database record
+                $currentImage->delete();
+                Log::info('Deleted image: ' . $currentImage->image_path);
+            }
+        }
+
+        // Add new images
+        if (!empty($newImages)) {
+            $this->handleImageUploads($item, $newImages);
+            Log::info('Added ' . count($newImages) . ' new images');
+        }
+
+        // Update the order of remaining images
+        $remainingImages = $item->fresh()->images()->orderBy('created_at')->get();
+        foreach ($remainingImages as $index => $image) {
+            $image->update([
+                'order' => $index + 1,
+                'is_primary' => $index === 0
+            ]);
+        }
+    }
+
 
     /**
      * Delete item
@@ -532,9 +594,12 @@ class ItemController extends Controller
         $userId = Auth::id();
         $itemId = $item->id;
 
+        // Get the current maximum order
+        $maxOrder = $item->images()->max('order') ?? 0;
+
         foreach ($images as $index => $image) {
             $extension = $image->getClientOriginalExtension();
-            $filename = time() . '_' . uniqid() . '_' . $index . '.' . $extension;
+            $filename = time() . '_' . uniqid() . '_' . ($maxOrder + $index + 1) . '.' . $extension;
 
             // Store in storage/app/public/items/user_{userId}/item_{itemId}/
             $directory = "items/user_{$userId}/item_{$itemId}";
@@ -546,8 +611,8 @@ class ItemController extends Controller
                 'filename' => $filename,
                 'file_size' => $image->getSize(),
                 'mime_type' => $image->getMimeType(),
-                'order' => $index + 1,
-                'is_primary' => $index === 0,
+                'order' => $maxOrder + $index + 1,
+                'is_primary' => $item->images()->count() === 0 && $index === 0, // Only first image is primary if no images exist
             ]);
         }
     }
