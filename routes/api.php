@@ -195,7 +195,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('{item}/archive', [ItemController::class, 'archive']);
         Route::post('{item}/toggle-favorite', [ItemController::class, 'toggleFavorite']);
 
-        Route::put('{item}', [ItemController::class, 'update']);
+        Route::post('{item}/update', [ItemController::class, 'update']);
         Route::patch('{item}/status', [ItemController::class, 'updateStatus']);
 
         Route::delete('{item}', [ItemController::class, 'destroy']);
