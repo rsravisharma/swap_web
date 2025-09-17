@@ -94,40 +94,40 @@ Route::middleware('auth:sanctum')->group(function () {
     // CHAT & COMMUNICATION ROUTES
     // ================================
     Route::prefix('chat')->group(function () {
-        Route::post('session', [ChatController::class, 'startSession']);
         Route::get('sessions', [ChatController::class, 'getUserSessions']);
-        Route::delete('session/{sessionId}', [ChatController::class, 'deleteSession']);
+        Route::post('session', [ChatController::class, 'startSession']);
         Route::post('message', [ChatController::class, 'sendMessage']);
+        Route::post('store-ably-message', [ChatController::class, 'storeAblyMessage']);
         Route::get('session/{sessionId}/messages', [ChatController::class, 'getMessages']);
         Route::post('session/{sessionId}/read', [ChatController::class, 'markAsRead']);
+        Route::delete('session/{sessionId}', [ChatController::class, 'deleteSession']);
     });
 
     Route::prefix('chats')->group(function () {
         Route::get('/', [CommunicationController::class, 'getChats']);
-        Route::delete('{chatId}', [CommunicationController::class, 'deleteChat']);
+        Route::get('unread-count', [CommunicationController::class, 'getUnreadMessageCount']);
+        
+        Route::get('{chatId}/messages', [CommunicationController::class, 'getChatMessages']);
+        Route::get('{chatId}/messages/search', [CommunicationController::class, 'searchMessages']);
+        Route::get('{chatId}/offers', [CommunicationController::class, 'getOfferHistory']);
+        
+        Route::post('{chatId}/messages', [CommunicationController::class, 'sendMessage']);
+        Route::post('{chatId}/typing', [CommunicationController::class, 'sendTypingIndicator']);
+        Route::post('{chatId}/offers', [CommunicationController::class, 'sendOffer']);
+        Route::post('{chatId}/report', [CommunicationController::class, 'reportChat']);
+        
         Route::put('{chatId}/mark-read', [CommunicationController::class, 'markChatAsRead']);
         Route::put('{chatId}/archive', [CommunicationController::class, 'updateChatArchiveStatus']);
-
-        Route::get('{chatId}/messages', [CommunicationController::class, 'getChatMessages']);
-        Route::post('{chatId}/messages', [CommunicationController::class, 'sendMessage']);
-        Route::delete('{chatId}/messages/{messageId}', [CommunicationController::class, 'deleteMessage']);
         Route::put('{chatId}/messages/{messageId}', [CommunicationController::class, 'editMessage']);
-        Route::get('{chatId}/messages/search', [CommunicationController::class, 'searchMessages']);
-
-        Route::post('{chatId}/typing', [CommunicationController::class, 'sendTypingIndicator']);
-
-        Route::get('{chatId}/offers', [CommunicationController::class, 'getOfferHistory']);
-        Route::post('{chatId}/offers', [CommunicationController::class, 'sendOffer']);
         Route::put('{chatId}/offers/{messageId}/accept', [CommunicationController::class, 'acceptOffer']);
         Route::put('{chatId}/offers/{messageId}/reject', [CommunicationController::class, 'rejectOffer']);
-
-        Route::post('{chatId}/report', [CommunicationController::class, 'reportChat']);
-        Route::post('store-ably-message', [ChatController::class, 'storeAblyMessage']);
+        
+        Route::delete('{chatId}', [CommunicationController::class, 'deleteChat']);
+        Route::delete('{chatId}/messages/{messageId}', [CommunicationController::class, 'deleteMessage']);
     });
 
     Route::post('upload/chat-image', [CommunicationController::class, 'uploadChatImage']);
     Route::post('upload/chat-files', [CommunicationController::class, 'uploadChatFiles']);
-    Route::get('chats/unread-count', [CommunicationController::class, 'getUnreadMessageCount']);
     Route::get('ping', [CommunicationController::class, 'ping']);
 
     // ================================
@@ -135,71 +135,73 @@ Route::middleware('auth:sanctum')->group(function () {
     // ================================
     Route::prefix('notifications')->group(function () {
         Route::get('/', [NotificationController::class, 'getNotifications']);
-        Route::put('{id}/read', [NotificationController::class, 'markAsRead']);
-        Route::put('mark-all-read', [NotificationController::class, 'markAllAsRead']);
-        Route::delete('{id}', [NotificationController::class, 'deleteNotification']);
-        Route::delete('clear-all', [NotificationController::class, 'clearAllNotifications']);
-        Route::post('test', [NotificationController::class, 'testNotification']);
-
-        Route::post('token', [NotificationController::class, 'updateToken']);
         Route::get('preferences', [NotificationController::class, 'getPreferences']);
-        Route::put('preferences', [NotificationController::class, 'updatePreferences']);
+        
+        Route::post('token', [NotificationController::class, 'updateToken']);
+        Route::post('test', [NotificationController::class, 'testNotification']);
         Route::post('subscribe', [NotificationController::class, 'subscribeToTopic']);
         Route::post('unsubscribe', [NotificationController::class, 'unsubscribeFromTopic']);
+        Route::post('send-topic', [NotificationController::class, 'sendTopicNotification'])
+            ->middleware('admin');
+        
+        Route::put('preferences', [NotificationController::class, 'updatePreferences']);
+        Route::put('mark-all-read', [NotificationController::class, 'markAllAsRead']);
+        Route::put('{id}/read', [NotificationController::class, 'markAsRead']);
+        
+        Route::delete('clear-all', [NotificationController::class, 'clearAllNotifications']);
+        Route::delete('{id}', [NotificationController::class, 'deleteNotification']);
     });
 
-    Route::post('notifications/send-topic', [NotificationController::class, 'sendTopicNotification'])
-        ->middleware('admin');
-
     // ================================
-    // HISTORY ROUTES
+    // HISTORY ROUTES - FIXED ORDER
     // ================================
     Route::prefix('user/history')->group(function () {
         Route::get('/', [HistoryController::class, 'index']);
-        Route::post('/', [HistoryController::class, 'store']);
         Route::get('stats', [HistoryController::class, 'getStats']);
         Route::get('categories', [HistoryController::class, 'getCategories']);
+        
+        Route::post('/', [HistoryController::class, 'store']);
+        
         Route::delete('/', [HistoryController::class, 'clear']);
         Route::delete('bulk', [HistoryController::class, 'bulkDelete']);
+        
+        // Parameter routes last
         Route::get('{id}', [HistoryController::class, 'show']);
         Route::delete('{id}', [HistoryController::class, 'destroy']);
     });
 
     // ================================
-    // ITEMS ROUTES
+    // ITEMS ROUTES - FIXED ORDER
     // ================================
     Route::prefix('items')->group(function () {
-        // Basic CRUD
+        // Static routes first
         Route::get('/', [ItemController::class, 'index']);
-        Route::post('/', [ItemController::class, 'store']);
         Route::get('search', [ItemController::class, 'search']);
-
-        // User-specific routes (MUST come before {id} routes)
         Route::get('my-listings', [ItemController::class, 'getMyListings']);
         Route::get('favorites', [ItemController::class, 'getFavorites']);
         Route::get('my-purchases', [ItemController::class, 'getMyPurchases']);
-
-        // Favorites management
+        
+        Route::post('/', [ItemController::class, 'store']);
+        
         Route::delete('favorites/clear', [ItemController::class, 'clearAllFavorites']);
-
-        // Purchases management
         Route::post('purchases/{purchaseId}/cancel', [ItemController::class, 'cancelOrder']);
-
-        // Parameterized routes (NO CONSTRAINTS for now)
-        Route::get('{item}', [ItemController::class, 'show']); // Public view
-        Route::get('{item}/edit', [ItemController::class, 'edit']); // Owner-only view for editing
-        Route::put('{item}', [ItemController::class, 'update']);
-        Route::delete('{item}', [ItemController::class, 'destroy']);
-
-        // Item-specific actions
+        
+        // Multi-segment parameter routes
+        Route::get('{item}/edit', [ItemController::class, 'edit']);
+        Route::get('{item}/related', [ItemController::class, 'getRelated']);
+        
         Route::post('{item}/promote', [ItemController::class, 'promote']);
         Route::post('{item}/mark-sold', [ItemController::class, 'markAsSold']);
         Route::post('{item}/archive', [ItemController::class, 'archive']);
-        Route::patch('{item}/status', [ItemController::class, 'updateStatus']);
-
-        // Item relationships
         Route::post('{item}/toggle-favorite', [ItemController::class, 'toggleFavorite']);
-        Route::get('{item}/related', [ItemController::class, 'getRelated']);
+        
+        Route::put('{item}', [ItemController::class, 'update']);
+        Route::patch('{item}/status', [ItemController::class, 'updateStatus']);
+        
+        Route::delete('{item}', [ItemController::class, 'destroy']);
+        
+        // Single parameter route last
+        Route::get('{item}', [ItemController::class, 'show']);
     });
 
     // ================================
@@ -214,13 +216,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('user/agreements', [LegalController::class, 'getUserAgreements']);
 
     // ================================
-    // LOCATION PROTECTED ROUTES
+    // LOCATION & USER ROUTES
     // ================================
     Route::prefix('user')->group(function () {
         Route::get('recent-locations', [LocationController::class, 'getRecentLocations']);
-        Route::post('recent-locations', [LocationController::class, 'saveRecentLocation']);
-
         Route::get('notification-settings', [UserController::class, 'getNotificationSettings']);
+        Route::get('preferences', [OfferController::class, 'getUserPreferences']);
+        Route::get('profile', [SupportController::class, 'getUserProfile']);
+        
+        Route::post('recent-locations', [LocationController::class, 'saveRecentLocation']);
         Route::put('notification-settings', [UserController::class, 'updateNotificationSettings']);
     });
 
@@ -231,9 +235,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // ================================
     Route::prefix('basket')->group(function () {
         Route::get('items', [OfferController::class, 'getBasketItems']);
-        Route::delete('items/{basketItemId}', [OfferController::class, 'removeBasketItem']);
         Route::post('remove-multiple', [OfferController::class, 'removeMultipleBasketItems']);
         Route::delete('clear', [OfferController::class, 'clearBasket']);
+        Route::delete('items/{basketItemId}', [OfferController::class, 'removeBasketItem']);
     });
 
     Route::post('wishlist/add', [OfferController::class, 'moveToWishlist']);
@@ -258,26 +262,25 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('study-material-requests')->group(function () {
         Route::get('/', [OfferController::class, 'getStudyMaterialRequests']);
         Route::post('/', [OfferController::class, 'createStudyMaterialRequest']);
-        Route::delete('{requestId}', [OfferController::class, 'deleteStudyMaterialRequest']);
         Route::put('{requestId}/fulfill', [OfferController::class, 'markRequestFulfilled']);
+        Route::delete('{requestId}', [OfferController::class, 'deleteStudyMaterialRequest']);
     });
 
-    Route::get('user/preferences', [OfferController::class, 'getUserPreferences']);
-
     // ================================
-    // PAYMENT ROUTES
+    // PAYMENT ROUTES - FIXED ORDER
     // ================================
     Route::prefix('payment')->group(function () {
         Route::get('methods', [PaymentController::class, 'getPaymentMethods']);
         Route::get('saved-cards', [PaymentController::class, 'getSavedPaymentMethods']);
+        Route::get('history', [PaymentController::class, 'getPaymentHistory']);
+        
         Route::post('add-method', [PaymentController::class, 'addPaymentMethod']);
-        Route::put('methods/{cardId}', [PaymentController::class, 'updatePaymentMethod']);
-        Route::delete('methods/{cardId}', [PaymentController::class, 'deletePaymentMethod']);
-
         Route::post('process', [PaymentController::class, 'processPayment']);
         Route::post('validate-card', [PaymentController::class, 'validateCard']);
-
-        Route::get('history', [PaymentController::class, 'getPaymentHistory']);
+        
+        Route::put('methods/{cardId}', [PaymentController::class, 'updatePaymentMethod']);
+        Route::delete('methods/{cardId}', [PaymentController::class, 'deletePaymentMethod']);
+        
         Route::get('{paymentId}', [PaymentController::class, 'getPaymentDetails']);
         Route::post('{paymentId}/refund', [PaymentController::class, 'refundPayment']);
     });
@@ -287,15 +290,16 @@ Route::middleware('auth:sanctum')->group(function () {
     // ================================
     Route::prefix('profile')->group(function () {
         Route::get('/', [ProfileController::class, 'getProfile']);
-        Route::put('/', [ProfileController::class, 'updateProfile']);
-        Route::get('stats/{userId?}', [ProfileController::class, 'getUserStats']);
-        Route::get('earnings', [ProfileController::class, 'getEarningsHistory']);
-
         Route::get('student', [ProfileController::class, 'getStudentProfile']);
+        Route::get('earnings', [ProfileController::class, 'getEarningsHistory']);
+        Route::get('wishlist', [ProfileController::class, 'getWishlist']);
+        Route::get('stats/{userId?}', [ProfileController::class, 'getUserStats']);
+        
+        Route::put('/', [ProfileController::class, 'updateProfile']);
+        
         Route::post('upload-student-id', [ProfileController::class, 'uploadStudentId']);
         Route::post('verification', [ProfileController::class, 'submitStudentVerification']);
-
-        Route::get('wishlist', [ProfileController::class, 'getWishlist']);
+        
         Route::delete('wishlist/{itemId}', [ProfileController::class, 'removeFromWishlist']);
     });
 
@@ -304,122 +308,121 @@ Route::middleware('auth:sanctum')->group(function () {
     // ================================
     Route::prefix('safety')->group(function () {
         Route::get('blocked-users', [SafetyController::class, 'getBlockedUsers']);
+        Route::get('stats', [SafetyController::class, 'getSafetyStats']);
+        Route::get('is-blocked/{userId}', [SafetyController::class, 'isUserBlocked']);
+        
         Route::post('block-user', [SafetyController::class, 'blockUser']);
         Route::post('unblock-user', [SafetyController::class, 'unblockUser']);
         Route::post('report-user', [SafetyController::class, 'reportUser']);
         Route::post('report-item', [SafetyController::class, 'reportItem']);
-        Route::get('stats', [SafetyController::class, 'getSafetyStats']);
-        Route::get('is-blocked/{userId}', [SafetyController::class, 'isUserBlocked']);
     });
 
     // ================================
-    // SEARCH ROUTES
+    // SEARCH ROUTES - FIXED ORDER
     // ================================
     Route::prefix('search')->group(function () {
         Route::get('all', [SearchController::class, 'getAllSearchResults']);
         Route::get('items', [SearchController::class, 'searchItems']);
         Route::get('users', [SearchController::class, 'searchUsers']);
         Route::get('users/suggested', [SearchController::class, 'getSuggestedUsers']);
-        Route::post('filtered', [SearchController::class, 'getFilteredItems']);
-
         Route::get('categories', [SearchController::class, 'getCategoriesWithCounts']);
+        Route::get('suggestions', [SearchController::class, 'getSearchSuggestions']);
+        Route::get('quick-suggestions', [SearchController::class, 'getQuickSuggestions']);
+        Route::get('trending', [SearchController::class, 'getTrendingSearches']);
+        Route::get('popular', [SearchController::class, 'getPopularSearches']);
+        
+        Route::post('filtered', [SearchController::class, 'getFilteredItems']);
+        Route::post('record', [SearchController::class, 'recordSearch']);
+        Route::post('favorites/toggle', [SearchController::class, 'toggleFavorite']);
+        Route::post('users/follow/toggle', [SearchController::class, 'toggleFollowUser']);
+        
         Route::get('categories/{categoryId}/subcategories', [SearchController::class, 'getSubCategories']);
-
+        
         Route::prefix('filters')->group(function () {
             Route::get('locations', [SearchController::class, 'getAvailableLocations']);
             Route::get('universities', [SearchController::class, 'getAvailableUniversities']);
         });
-
-        Route::get('suggestions', [SearchController::class, 'getSearchSuggestions']);
-        Route::get('quick-suggestions', [SearchController::class, 'getQuickSuggestions']);
-        Route::get('trending', [SearchController::class, 'getTrendingSearches']);
-        Route::post('record', [SearchController::class, 'recordSearch']);
-        Route::get('popular', [SearchController::class, 'getPopularSearches']);
-
+        
         Route::prefix('history')->group(function () {
             Route::get('recent', [SearchController::class, 'getRecentSearches']);
             Route::post('save', [SearchController::class, 'saveSearchHistory']);
             Route::delete('clear', [SearchController::class, 'clearSearchHistory']);
         });
-
-        Route::post('favorites/toggle', [SearchController::class, 'toggleFavorite']);
-        Route::post('users/follow/toggle', [SearchController::class, 'toggleFollowUser']);
     });
 
     // ================================
-    // SETTINGS ROUTES
+    // SETTINGS ROUTES - FIXED ORDER
     // ================================
     Route::prefix('user/settings')->group(function () {
-        Route::get('language', [SettingsController::class, 'getUserLanguage']);
-        Route::post('language', [SettingsController::class, 'saveUserLanguage']);
-
         Route::get('/', [SettingsController::class, 'getAllSettings']);
+        Route::get('language', [SettingsController::class, 'getUserLanguage']);
+        Route::get('options', [SettingsController::class, 'getSettingsOptions']);
+        
+        Route::post('language', [SettingsController::class, 'saveUserLanguage']);
+        
         Route::put('/', [SettingsController::class, 'updateSettings']);
+        
         Route::delete('/', [SettingsController::class, 'resetAllSettings']);
-
+        
+        // Parameter routes last
         Route::get('{key}', [SettingsController::class, 'getSetting']);
         Route::put('{key}', [SettingsController::class, 'updateSetting']);
         Route::delete('{key}', [SettingsController::class, 'deleteSetting']);
-
-        Route::get('options', [SettingsController::class, 'getSettingsOptions']);
     });
 
     // ================================
-    // SOCIAL ROUTES
+    // SOCIAL ROUTES - ALREADY FIXED
     // ================================
     Route::prefix('users')->group(function () {
+        // Static routes first
+        Route::get('top-sellers', [SocialController::class, 'getTopSellers']);
+        
+        // Multi-segment parameter routes
         Route::get('{userId}/followers', [SocialController::class, 'getFollowers']);
         Route::get('{userId}/following', [SocialController::class, 'getFollowing']);
-        Route::post('{userId}/toggle-follow', [SocialController::class, 'toggleFollow']);
-        Route::delete('followers/{userId}', [SocialController::class, 'removeFollower']);
-
         Route::get('{userId}/ratings', [SocialController::class, 'getUserRatings']);
-        Route::get('{userId}', [ProfileController::class, 'getUserDetails']);
-        Route::post('{userId}/follow', [ProfileController::class, 'toggleFollow']);
-        Route::post('{userId}/block', [ProfileController::class, 'toggleBlock']);
         Route::get('{userId}/items', [ItemController::class, 'getUserItems']);
-
-        Route::get('top-sellers', [SocialController::class, 'getTopSellers']);
+        
+        // POST/DELETE routes
+        Route::post('{userId}/toggle-follow', [SocialController::class, 'toggleFollow']);
+        Route::post('{userId}/follow', [ProfileController::class, 'toggleFollow']);
+        Route::post('{userId}/block', [CommunicationController::class, 'blockUser']);
+        Route::post('{userId}/unblock', [CommunicationController::class, 'unblockUser']);
+        
+        Route::delete('followers/{userId}', [SocialController::class, 'removeFollower']);
+        
+        // Single parameter route last
+        Route::get('{userId}', [ProfileController::class, 'getUserDetails']);
     });
 
     Route::post('ratings', [SocialController::class, 'submitRating']);
     Route::post('ratings/{ratingId}/helpful', [SocialController::class, 'markRatingHelpful']);
     Route::post('ratings/{ratingId}/report', [SocialController::class, 'reportRating']);
-
     Route::get('transactions/{transactionId}', [SocialController::class, 'getTransactionDetails']);
 
     // ================================
-    // SUPPORT ROUTES
+    // SUPPORT ROUTES - FIXED ORDER
     // ================================
-    Route::get('user/profile', [SupportController::class, 'getUserProfile']);
-
     Route::prefix('support')->group(function () {
-        Route::post('requests', [SupportController::class, 'submitSupportRequest']);
-        Route::get('requests/my-requests', [SupportController::class, 'getMySupportRequests']);
-        Route::get('requests/{requestId}', [SupportController::class, 'getSupportRequestDetails']);
-        Route::post('requests/{requestId}/rate', [SupportController::class, 'rateSupportExperience']);
-
         Route::get('faqs', [SupportController::class, 'getFaqs']);
         Route::get('faqs/search', [SupportController::class, 'searchFaqs']);
-        Route::post('faqs/{faqId}/helpful', [SupportController::class, 'markFaqHelpful']);
-
-        Route::post('feedback', [SupportController::class, 'submitFeedback']);
         Route::get('contact', [SupportController::class, 'getContactInfo']);
-
         Route::get('app-info', [SupportController::class, 'getAppInfo']);
         Route::get('system-status', [SupportController::class, 'getSystemStatus']);
         Route::get('announcements', [SupportController::class, 'getAnnouncements']);
-
+        Route::get('popular-topics', [SupportController::class, 'getPopularTopics']);
+        Route::get('requests/my-requests', [SupportController::class, 'getMySupportRequests']);
+        
+        Route::post('requests', [SupportController::class, 'submitSupportRequest']);
+        Route::post('feedback', [SupportController::class, 'submitFeedback']);
         Route::post('bug-reports', [SupportController::class, 'submitBugReport']);
         Route::post('feature-requests', [SupportController::class, 'submitFeatureRequest']);
-
-        Route::get('popular-topics', [SupportController::class, 'getPopularTopics']);
+        Route::post('faqs/{faqId}/helpful', [SupportController::class, 'markFaqHelpful']);
+        
+        Route::get('requests/{requestId}', [SupportController::class, 'getSupportRequestDetails']);
+        Route::post('requests/{requestId}/rate', [SupportController::class, 'rateSupportExperience']);
     });
 
-    // User blocking/unblocking (from communication controller)
-    Route::post('users/{userId}/block', [CommunicationController::class, 'blockUser']);
-    Route::post('users/{userId}/unblock', [CommunicationController::class, 'unblockUser']);
-
-    // Cache clearing route (if needed)
+    // Cache clearing route
     Route::post('clear-cache', [CategoryController::class, 'clearCache']);
 });
