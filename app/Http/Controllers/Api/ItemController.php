@@ -300,6 +300,10 @@ class ItemController extends Controller
             ], 404);
         }
 
+        // Debug incoming request
+        Log::info('Update request data: ', $request->all());
+        Log::info('Tags in request: ', $request->input('tags', []));
+
         $validator = Validator::make($request->all(), [
             'title' => 'sometimes|required|string|max:255',
             'description' => 'sometimes|required|string|max:2000',
@@ -317,6 +321,7 @@ class ItemController extends Controller
         ]);
 
         if ($validator->fails()) {
+            Log::error('Validation failed: ', $validator->errors()->toArray());
             return response()->json([
                 'success' => false,
                 'errors' => $validator->errors()
@@ -336,11 +341,16 @@ class ItemController extends Controller
             ]);
 
             // Handle tags
-            if ($request->has('tags')) {
-                $updateData['tags'] = $request->input('tags', []);
+            $tags = $request->input('tags', []);
+            Log::info('Processing tags: ', $tags);
+
+            if (is_array($tags)) {
+                $updateData['tags'] = json_encode($tags); // Store as JSON string
+            } else {
+                $updateData['tags'] = json_encode([]);
             }
 
-            Log::info('Updating item with data: ', $updateData);
+            Log::info('Final update data: ', $updateData);
             $item->update($updateData);
 
             // Handle image updates
@@ -351,7 +361,7 @@ class ItemController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $item->fresh()->load(['user', 'images']), // Use fresh() to reload
+                'data' => $item->fresh()->load(['user', 'images']),
                 'message' => 'Item updated successfully'
             ]);
         } catch (\Exception $e) {
@@ -375,22 +385,41 @@ class ItemController extends Controller
         // Get current image paths that should be kept
         $imagesToKeep = [];
         foreach ($existingImages as $imageUrl) {
+            Log::info('Processing existing image URL: ' . $imageUrl);
+
             if (strpos($imageUrl, '/storage/') !== false) {
                 // Extract the path from the full URL
-                $path = str_replace(url('/storage/'), '', $imageUrl);
+                // Handle both local and production URLs
+                $baseUrl = config('app.url') . '/storage/';
+                $publicUrl = url('/storage/');
+
+                $path = str_replace($baseUrl, '', $imageUrl);
+                $path = str_replace($publicUrl, '', $path);
+
+                // Also handle the direct domain case
+                $path = str_replace('https://swap.cubebitz.com/storage/', '', $path);
+
                 $imagesToKeep[] = $path;
+                Log::info('Extracted path to keep: ' . $path);
             }
         }
 
-        // Delete images that are not in the keep list
+        Log::info('Final paths to keep: ', $imagesToKeep);
+
+        // Get current images and their paths
         $currentImages = $item->images;
+        Log::info('Current images in database: ', $currentImages->pluck('image_path')->toArray());
+
+        // Delete images that are not in the keep list
         foreach ($currentImages as $currentImage) {
             if (!in_array($currentImage->image_path, $imagesToKeep)) {
+                Log::info('Deleting image: ' . $currentImage->image_path);
                 // Delete the file
                 Storage::disk('public')->delete($currentImage->image_path);
                 // Delete the database record
                 $currentImage->delete();
-                Log::info('Deleted image: ' . $currentImage->image_path);
+            } else {
+                Log::info('Keeping image: ' . $currentImage->image_path);
             }
         }
 
