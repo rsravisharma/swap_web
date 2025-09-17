@@ -37,7 +37,7 @@ class SocialController extends Controller
                         'profile_image' => $follower->profile_image,
                         'followed_at' => $follow->created_at->toDateTimeString(),
                         'is_verified' => $follower->is_verified ?? false,
-                        'university' => $follower->profile->university ?? null,
+                        'university' => $follower->university ?? null,
                         'total_listings' => $follower->items()->count()
                     ];
                 });
@@ -76,7 +76,7 @@ class SocialController extends Controller
                         'profile_image' => $followed->profile_image,
                         'followed_at' => $follow->created_at->toDateTimeString(),
                         'is_verified' => $followed->is_verified ?? false,
-                        'university' => $followed->profile->university ?? null,
+                        'university' => $followed->university ?? null,
                         'total_listings' => $followed->items()->count()
                     ];
                 });

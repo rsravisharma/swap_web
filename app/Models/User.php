@@ -93,13 +93,13 @@ class User extends Authenticatable implements MustVerifyEmail
     public function followers()
     {
         return $this->belongsToMany(User::class, 'user_followers', 'following_id', 'follower_id')
-                    ->withTimestamps();
+            ->withTimestamps();
     }
 
     public function following()
     {
         return $this->belongsToMany(User::class, 'user_followers', 'follower_id', 'following_id')
-                    ->withTimestamps();
+            ->withTimestamps();
     }
 
     public function givenRatings()
@@ -115,22 +115,22 @@ class User extends Authenticatable implements MustVerifyEmail
     public function blockedUsers()
     {
         return $this->belongsToMany(User::class, 'blocked_users', 'blocker_id', 'blocked_id')
-                    ->withTimestamps();
+            ->withTimestamps();
     }
 
     public function blockedBy()
     {
         return $this->belongsToMany(User::class, 'blocked_users', 'blocked_id', 'blocker_id')
-                    ->withTimestamps();
+            ->withTimestamps();
     }
 
     // Accessors
     public function fullProfileImageUrl(): Attribute
     {
         return Attribute::make(
-            get: fn () => $this->profile_image 
-                ? (filter_var($this->profile_image, FILTER_VALIDATE_URL) 
-                    ? $this->profile_image 
+            get: fn() => $this->profile_image
+                ? (filter_var($this->profile_image, FILTER_VALIDATE_URL)
+                    ? $this->profile_image
                     : asset('storage/' . $this->profile_image))
                 : null
         );
@@ -139,14 +139,14 @@ class User extends Authenticatable implements MustVerifyEmail
     public function isPhoneVerified(): Attribute
     {
         return Attribute::make(
-            get: fn () => !is_null($this->phone_verified_at)
+            get: fn() => !is_null($this->phone_verified_at)
         );
     }
 
     public function isEmailVerified(): Attribute
     {
         return Attribute::make(
-            get: fn () => !is_null($this->email_verified_at)
+            get: fn() => !is_null($this->email_verified_at)
         );
     }
 
@@ -160,17 +160,25 @@ class User extends Authenticatable implements MustVerifyEmail
         return Attribute::make(
             get: function () {
                 $fields = [
-                    'name', 'email', 'phone', 'profile_image', 'bio',
-                    'university', 'course', 'semester', 'city', 'state'
+                    'name',
+                    'email',
+                    'phone',
+                    'profile_image',
+                    'bio',
+                    'university',
+                    'course',
+                    'semester',
+                    'city',
+                    'state'
                 ];
-                
+
                 $completed = 0;
                 foreach ($fields as $field) {
                     if (!empty($this->$field)) {
                         $completed++;
                     }
                 }
-                
+
                 return round(($completed / count($fields)) * 100);
             }
         );
@@ -200,22 +208,22 @@ class User extends Authenticatable implements MustVerifyEmail
     public function getAverageRating(string $type = null): float
     {
         $query = $this->receivedRatings();
-        
+
         if ($type) {
             $query->where('type', $type);
         }
-        
+
         return $query->avg('rating') ?: 0.0;
     }
 
     public function getTotalRatings(string $type = null): int
     {
         $query = $this->receivedRatings();
-        
+
         if ($type) {
             $query->where('type', $type);
         }
-        
+
         return $query->count();
     }
 

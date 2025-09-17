@@ -29,13 +29,12 @@ class SupportController extends Controller
     public function getUserProfile(): JsonResponse
     {
         try {
-            $user = Auth::user()->load('profile');
-            
+            $user = Auth::user();
+
             return response()->json([
                 'success' => true,
                 'data' => $user
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get user profile: ' . $e->getMessage());
             return response()->json([
@@ -44,6 +43,7 @@ class SupportController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Submit support request
@@ -69,7 +69,7 @@ class SupportController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             $supportRequest = SupportRequest::create([
                 'user_id' => $user->id,
                 'subject' => $request->subject,
@@ -96,7 +96,6 @@ class SupportController extends Controller
                 'data' => $supportRequest->load('attachments'),
                 'message' => 'Support request submitted successfully'
             ], 201);
-
         } catch (\Exception $e) {
             Log::error('Failed to submit support request: ' . $e->getMessage());
             return response()->json([
@@ -114,7 +113,7 @@ class SupportController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             $requests = SupportRequest::where('user_id', $user->id)
                 ->with(['attachments'])
                 ->orderBy('created_at', 'desc')
@@ -124,7 +123,6 @@ class SupportController extends Controller
                 'success' => true,
                 'data' => $requests
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get support requests: ' . $e->getMessage());
             return response()->json([
@@ -142,7 +140,7 @@ class SupportController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             $request = SupportRequest::with(['attachments', 'responses'])
                 ->where('id', $requestId)
                 ->where('user_id', $user->id)
@@ -159,7 +157,6 @@ class SupportController extends Controller
                 'success' => true,
                 'data' => $request
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get support request details: ' . $e->getMessage());
             return response()->json([
@@ -187,7 +184,6 @@ class SupportController extends Controller
                 'success' => true,
                 'data' => $faqs
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get FAQs: ' . $e->getMessage());
             return response()->json([
@@ -216,7 +212,7 @@ class SupportController extends Controller
 
         try {
             $faq = Faq::find($faqId);
-            
+
             if (!$faq) {
                 return response()->json([
                     'success' => false,
@@ -225,7 +221,7 @@ class SupportController extends Controller
             }
 
             $isHelpful = $request->boolean('helpful');
-            
+
             // Check if user already marked this FAQ
             $user = Auth::user();
             $existingMark = DB::table('faq_helpful_marks')
@@ -239,7 +235,7 @@ class SupportController extends Controller
                         ->where('faq_id', $faqId)
                         ->where('user_id', $user->id)
                         ->update(['is_helpful' => $isHelpful]);
-                    
+
                     $increment = $isHelpful ? 2 : -2; // Change from opposite
                     $faq->increment('helpful_count', $increment);
                 }
@@ -250,7 +246,7 @@ class SupportController extends Controller
                     'is_helpful' => $isHelpful,
                     'created_at' => now()
                 ]);
-                
+
                 $increment = $isHelpful ? 1 : -1;
                 $faq->increment('helpful_count', $increment);
             }
@@ -259,7 +255,6 @@ class SupportController extends Controller
                 'success' => true,
                 'message' => 'FAQ feedback recorded'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to mark FAQ helpful: ' . $e->getMessage());
             return response()->json([
@@ -288,12 +283,12 @@ class SupportController extends Controller
 
         try {
             $query = $request->input('q');
-            
+
             $faqs = Faq::where('is_active', true)
                 ->where(function ($q) use ($query) {
                     $q->where('question', 'like', "%{$query}%")
-                      ->orWhere('answer', 'like', "%{$query}%")
-                      ->orWhere('tags', 'like', "%{$query}%");
+                        ->orWhere('answer', 'like', "%{$query}%")
+                        ->orWhere('tags', 'like', "%{$query}%");
                 })
                 ->orderBy('category')
                 ->orderBy('sort_order')
@@ -303,7 +298,6 @@ class SupportController extends Controller
                 'success' => true,
                 'data' => $faqs
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to search FAQs: ' . $e->getMessage());
             return response()->json([
@@ -334,7 +328,7 @@ class SupportController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             Feedback::create([
                 'user_id' => $user->id,
                 'message' => $request->message,
@@ -346,7 +340,6 @@ class SupportController extends Controller
                 'success' => true,
                 'message' => 'Feedback submitted successfully'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to submit feedback: ' . $e->getMessage());
             return response()->json([
@@ -380,7 +373,6 @@ class SupportController extends Controller
                 'success' => true,
                 'data' => $contactInfo
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get contact info: ' . $e->getMessage());
             return response()->json([
@@ -413,7 +405,6 @@ class SupportController extends Controller
                 'success' => true,
                 'data' => $appInfo
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get app info: ' . $e->getMessage());
             return response()->json([
@@ -447,7 +438,6 @@ class SupportController extends Controller
                 'success' => true,
                 'data' => $systemStatus
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get system status: ' . $e->getMessage());
             return response()->json([
@@ -468,7 +458,7 @@ class SupportController extends Controller
                 ->where('start_date', '<=', now())
                 ->where(function ($query) {
                     $query->whereNull('end_date')
-                          ->orWhere('end_date', '>=', now());
+                        ->orWhere('end_date', '>=', now());
                 })
                 ->orderBy('priority', 'desc')
                 ->orderBy('created_at', 'desc')
@@ -478,7 +468,6 @@ class SupportController extends Controller
                 'success' => true,
                 'data' => $announcements
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get announcements: ' . $e->getMessage());
             return response()->json([
@@ -514,7 +503,7 @@ class SupportController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             BugReport::create([
                 'user_id' => $user->id,
                 'title' => $request->title,
@@ -532,7 +521,6 @@ class SupportController extends Controller
                 'success' => true,
                 'message' => 'Bug report submitted successfully'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to submit bug report: ' . $e->getMessage());
             return response()->json([
@@ -562,7 +550,7 @@ class SupportController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             $supportRequest = SupportRequest::where('id', $requestId)
                 ->where('user_id', $user->id)
                 ->first();
@@ -584,7 +572,6 @@ class SupportController extends Controller
                 'success' => true,
                 'message' => 'Rating submitted successfully'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to rate support experience: ' . $e->getMessage());
             return response()->json([
@@ -616,7 +603,7 @@ class SupportController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             FeatureRequest::create([
                 'user_id' => $user->id,
                 'title' => $request->title,
@@ -630,7 +617,6 @@ class SupportController extends Controller
                 'success' => true,
                 'message' => 'Feature request submitted successfully'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to submit feature request: ' . $e->getMessage());
             return response()->json([
@@ -668,7 +654,6 @@ class SupportController extends Controller
                 'success' => true,
                 'data' => $popularTopics
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get popular topics: ' . $e->getMessage());
             return response()->json([

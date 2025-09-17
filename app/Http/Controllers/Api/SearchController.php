@@ -64,7 +64,6 @@ class SearchController extends Controller
             if ($type === 'all' || $type === 'users') {
                 $users = User::where('name', 'like', "%{$query}%")
                     ->orWhere('email', 'like', "%{$query}%")
-                    ->with('profile')
                     ->limit($limit)
                     ->get();
 
@@ -133,7 +132,7 @@ class SearchController extends Controller
             }
 
             if ($request->filled('university')) {
-                $items->whereHas('user.profile', function ($q) use ($request) {
+                $items->whereHas('user', function ($q) use ($request) {
                     $q->where('university', $request->university);
                 });
             }
@@ -227,22 +226,22 @@ class SearchController extends Controller
             $users = User::where('name', 'like', "%{$query}%")
                 ->orWhere('email', 'like', "%{$query}%");
 
-            // Apply filters
+            // Apply filters directly on User model fields
             if ($request->filled('university')) {
-                $users->whereHas('profile', function ($q) use ($request) {
-                    $q->where('university', $request->university);
-                });
+                $users->where('university', $request->university);
             }
 
             if ($request->filled('location')) {
-                $users->whereHas('profile', function ($q) use ($request) {
-                    $q->where('location', $request->location);
+                // You can filter by city, state, or country depending on your needs
+                $location = $request->location;
+                $users->where(function ($q) use ($location) {
+                    $q->where('city', 'like', "%{$location}%")
+                        ->orWhere('state', 'like', "%{$location}%")
+                        ->orWhere('country', 'like', "%{$location}%");
                 });
             }
 
-            $results = $users->with('profile')
-                ->limit($limit)
-                ->get();
+            $results = $users->limit($limit)->get();
 
             // Add follow status for authenticated users
             if (Auth::check()) {
@@ -271,6 +270,7 @@ class SearchController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Get filtered items
@@ -307,7 +307,7 @@ class SearchController extends Controller
             }
 
             if ($request->filled('university')) {
-                $query->whereHas('user.profile', function ($q) use ($request) {
+                $query->whereHas('user', function ($q) use ($request) {
                     $q->where('university', $request->university);
                 });
             }
