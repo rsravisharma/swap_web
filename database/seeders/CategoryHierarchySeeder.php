@@ -12,60 +12,65 @@ class CategoryHierarchySeeder extends Seeder
 {
     public function run(): void
     {
-        DB::transaction(function () {
-            // Disable foreign key checks
-            DB::statement('SET FOREIGN_KEY_CHECKS=0;');
-            
-            // Clear existing data in correct order
-            DB::table('items')->where('child_sub_category_id', '!=', null)->update(['child_sub_category_id' => null]);
-            DB::table('items')->where('sub_category_id', '!=', null)->update(['sub_category_id' => null]);
-            DB::table('items')->where('category_id', '!=', null)->update(['category_id' => null]);
-            
-            // Now truncate the tables
-            ChildSubCategory::truncate();
-            SubCategory::truncate();
-            Category::truncate();
-            
-            // Re-enable foreign key checks
-            DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+        // Disable foreign key checks outside of transaction
+        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+        
+        try {
+            DB::transaction(function () {
+                // Clear existing data in correct order
+                if (DB::getSchemaBuilder()->hasTable('items')) {
+                    DB::table('items')->whereNotNull('child_sub_category_id')->update(['child_sub_category_id' => null]);
+                    DB::table('items')->whereNotNull('sub_category_id')->update(['sub_category_id' => null]);
+                    DB::table('items')->whereNotNull('category_id')->update(['category_id' => null]);
+                }
+                
+                // Now truncate the tables
+                ChildSubCategory::truncate();
+                SubCategory::truncate();
+                Category::truncate();
 
-            $categoriesData = $this->getCategoriesData();
+                $categoriesData = $this->getCategoriesData();
 
-            foreach ($categoriesData['categories'] as $categoryData) {
-                // Create category
-                $category = Category::create([
-                    'name' => $categoryData['name'],
-                    'description' => $this->getCategoryDescription($categoryData['name']),
-                    'icon' => $this->getCategoryIcon($categoryData['name']),
-                    'sort_order' => array_search($categoryData['name'], array_column($categoriesData['categories'], 'name')) + 1,
-                ]);
-
-                // Create subcategories
-                foreach ($categoryData['sub_categories'] as $index => $subCategoryData) {
-                    $subCategory = SubCategory::create([
-                        'category_id' => $category->id,
-                        'name' => $subCategoryData['name'],
-                        'description' => $this->getSubCategoryDescription($subCategoryData['name']),
-                        'icon' => $this->getSubCategoryIcon($subCategoryData['name']),
-                        'sort_order' => $index + 1,
+                foreach ($categoriesData['categories'] as $categoryData) {
+                    // Create category
+                    $category = Category::create([
+                        'name' => $categoryData['name'],
+                        'description' => $this->getCategoryDescription($categoryData['name']),
+                        'icon' => $this->getCategoryIcon($categoryData['name']),
+                        'sort_order' => array_search($categoryData['name'], array_column($categoriesData['categories'], 'name')) + 1,
                     ]);
 
-                    // Create child subcategories if they exist
-                    if (isset($subCategoryData['child_sub_categories'])) {
-                        foreach ($subCategoryData['child_sub_categories'] as $childIndex => $childSubCategoryData) {
-                            ChildSubCategory::create([
-                                'sub_category_id' => $subCategory->id,
-                                'name' => $childSubCategoryData['name'],
-                                'description' => $this->getChildSubCategoryDescription($childSubCategoryData['name']),
-                                'sort_order' => $childIndex + 1,
-                            ]);
+                    // Create subcategories
+                    foreach ($categoryData['sub_categories'] as $index => $subCategoryData) {
+                        $subCategory = SubCategory::create([
+                            'category_id' => $category->id,
+                            'name' => $subCategoryData['name'],
+                            'description' => $this->getSubCategoryDescription($subCategoryData['name']),
+                            'icon' => $this->getSubCategoryIcon($subCategoryData['name']),
+                            'sort_order' => $index + 1,
+                        ]);
+
+                        // Create child subcategories if they exist
+                        if (isset($subCategoryData['child_sub_categories'])) {
+                            foreach ($subCategoryData['child_sub_categories'] as $childIndex => $childSubCategoryData) {
+                                ChildSubCategory::create([
+                                    'sub_category_id' => $subCategory->id,
+                                    'name' => $childSubCategoryData['name'],
+                                    'description' => $this->getChildSubCategoryDescription($childSubCategoryData['name']),
+                                    'sort_order' => $childIndex + 1,
+                                ]);
+                            }
                         }
                     }
                 }
-            }
-        });
-
-        $this->command->info('Category hierarchy seeded successfully!');
+            });
+            
+            $this->command->info('Category hierarchy seeded successfully!');
+            
+        } finally {
+            // Re-enable foreign key checks in finally block to ensure it always runs
+            DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+        }
     }
 
     private function getCategoriesData(): array
