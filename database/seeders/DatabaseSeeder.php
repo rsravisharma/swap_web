@@ -18,6 +18,8 @@ class DatabaseSeeder extends Seeder
          $this->call([
             CountrySeeder::class,
             UserPreferenceSeeder::class,
+            CategoryHierarchySeeder::class,
+            PaymentMethodSeeder::class,
         ]);
     }
 }
