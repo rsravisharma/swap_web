@@ -389,49 +389,37 @@ class ItemController extends Controller
         $existingImages = $request->input('existing_images', []);
         $newImages = $request->file('new_images', []);
 
-        Log::info('Existing images to keep: ', $existingImages);
-        Log::info('New images to add: ' . count($newImages));
+        Log::info('Existing images count: ' . count($existingImages));
+        Log::info('New images count: ' . count($newImages));
 
-        // Get current image paths that should be kept
-        $imagesToKeep = [];
-        foreach ($existingImages as $imageUrl) {
-            Log::info('Processing existing image URL: ' . $imageUrl);
+        // If we have existing_images array, it means user wants to keep specific images
+        if ($request->has('existing_images')) {
+            $imagesToKeep = [];
 
-            if (strpos($imageUrl, '/storage/') !== false) {
-                // Extract the path from the full URL
-                // Handle both local and production URLs
-                $baseUrl = config('app.url') . '/storage/';
-                $publicUrl = url('/storage/');
+            // Extract clean paths from URLs
+            foreach ($existingImages as $imageUrl) {
+                // Get the filename from the URL
+                $filename = basename(parse_url($imageUrl, PHP_URL_PATH));
 
-                $path = str_replace($baseUrl, '', $imageUrl);
-                $path = str_replace($publicUrl, '', $path);
+                // Find matching image in database by filename
+                $matchingImage = $item->images()->where('filename', $filename)->first();
+                if ($matchingImage) {
+                    $imagesToKeep[] = $matchingImage->image_path;
+                    Log::info('Will keep image: ' . $matchingImage->image_path);
+                }
+            }
 
-                // Also handle the direct domain case
-                $path = str_replace('https://swap.cubebitz.com/storage/', '', $path);
-
-                $imagesToKeep[] = $path;
-                Log::info('Extracted path to keep: ' . $path);
+            // Delete images not in keep list
+            $currentImages = $item->images;
+            foreach ($currentImages as $currentImage) {
+                if (!in_array($currentImage->image_path, $imagesToKeep)) {
+                    Log::info('Deleting image: ' . $currentImage->image_path);
+                    Storage::disk('public')->delete($currentImage->image_path);
+                    $currentImage->delete();
+                }
             }
         }
-
-        Log::info('Final paths to keep: ', $imagesToKeep);
-
-        // Get current images and their paths
-        $currentImages = $item->images;
-        Log::info('Current images in database: ', $currentImages->pluck('image_path')->toArray());
-
-        // Delete images that are not in the keep list
-        foreach ($currentImages as $currentImage) {
-            if (!in_array($currentImage->image_path, $imagesToKeep)) {
-                Log::info('Deleting image: ' . $currentImage->image_path);
-                // Delete the file
-                Storage::disk('public')->delete($currentImage->image_path);
-                // Delete the database record
-                $currentImage->delete();
-            } else {
-                Log::info('Keeping image: ' . $currentImage->image_path);
-            }
-        }
+        // If no existing_images specified, keep all current images
 
         // Add new images
         if (!empty($newImages)) {
@@ -439,7 +427,7 @@ class ItemController extends Controller
             Log::info('Added ' . count($newImages) . ' new images');
         }
 
-        // Update the order of remaining images
+        // Update image order
         $remainingImages = $item->fresh()->images()->orderBy('created_at')->get();
         foreach ($remainingImages as $index => $image) {
             $image->update([
