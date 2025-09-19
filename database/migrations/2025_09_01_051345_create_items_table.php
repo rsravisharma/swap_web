@@ -18,7 +18,7 @@ return new class extends Migration
             $table->text('description');
             $table->foreignId('category_id')->nullable()->constrained()->onDelete('set null');
             $table->foreignId('sub_category_id')->nullable()->constrained()->onDelete('set null');
-            $table->foreignId('child_subcategory_id')->nullable()->constrained()->onDelete('set null');
+            $table->foreignId('child_sub_category_id')->nullable()->constrained()->onDelete('set null');
             $table->decimal('price', 10, 2);
             $table->enum('condition', ['new', 'like_new', 'good', 'fair', 'poor']);
             $table->enum('status', ['active', 'sold', 'archived'])->default('active');
@@ -35,7 +35,7 @@ return new class extends Migration
             $table->timestamps();
             
             $table->index(['user_id', 'status']);
-            $table->index(['category_id', 'sub_category_id', 'child_subcategory_id']);
+            $table->index(['category_id', 'sub_category_id', 'child_sub_category_id']);
             $table->index('is_promoted');
             $table->fullText(['title', 'description']);
         });
