@@ -13,10 +13,21 @@ class CategoryHierarchySeeder extends Seeder
     public function run(): void
     {
         DB::transaction(function () {
-            // Clear existing data
+            // Disable foreign key checks
+            DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+            
+            // Clear existing data in correct order
+            DB::table('items')->where('child_sub_category_id', '!=', null)->update(['child_sub_category_id' => null]);
+            DB::table('items')->where('sub_category_id', '!=', null)->update(['sub_category_id' => null]);
+            DB::table('items')->where('category_id', '!=', null)->update(['category_id' => null]);
+            
+            // Now truncate the tables
             ChildSubCategory::truncate();
             SubCategory::truncate();
             Category::truncate();
+            
+            // Re-enable foreign key checks
+            DB::statement('SET FOREIGN_KEY_CHECKS=1;');
 
             $categoriesData = $this->getCategoriesData();
 
@@ -29,7 +40,7 @@ class CategoryHierarchySeeder extends Seeder
                     'sort_order' => array_search($categoryData['name'], array_column($categoriesData['categories'], 'name')) + 1,
                 ]);
 
-                // Create subcategories - FIXED: changed from 'subcategories' to 'sub_categories'
+                // Create subcategories
                 foreach ($categoryData['sub_categories'] as $index => $subCategoryData) {
                     $subCategory = SubCategory::create([
                         'category_id' => $category->id,
@@ -39,7 +50,7 @@ class CategoryHierarchySeeder extends Seeder
                         'sort_order' => $index + 1,
                     ]);
 
-                    // Create child subcategories if they exist - FIXED: changed key name
+                    // Create child subcategories if they exist
                     if (isset($subCategoryData['child_sub_categories'])) {
                         foreach ($subCategoryData['child_sub_categories'] as $childIndex => $childSubCategoryData) {
                             ChildSubCategory::create([
