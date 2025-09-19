@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Item extends Model
 {
@@ -13,7 +14,9 @@ class Item extends Model
         'user_id',
         'title',
         'description',
-        'category',
+        'category_id',
+        'subcategory_id',
+        'child_subcategory_id',
         'price',
         'condition',
         'status',
@@ -46,9 +49,39 @@ class Item extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function category()
+    public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
+    }
+
+    public function subcategory(): BelongsTo
+    {
+        return $this->belongsTo(Subcategory::class);
+    }
+
+    public function childSubcategory(): BelongsTo
+    {
+        return $this->belongsTo(ChildSubcategory::class);
+    }
+
+      // Get the most specific category path
+    public function getCategoryPathAttribute()
+    {
+        $path = [];
+        
+        if ($this->category) {
+            $path[] = $this->category->name;
+        }
+        
+        if ($this->subcategory) {
+            $path[] = $this->subcategory->name;
+        }
+        
+        if ($this->childSubcategory) {
+            $path[] = $this->childSubcategory->name;
+        }
+        
+        return implode(' > ', $path);
     }
 
     public function images()
@@ -80,7 +113,7 @@ class Item extends Model
     public function scopePromoted($query)
     {
         return $query->where('is_promoted', true)
-                    ->where('promoted_until', '>', now());
+            ->where('promoted_until', '>', now());
     }
 
     // Helper methods
@@ -101,8 +134,8 @@ class Item extends Model
 
     public function isPromoted()
     {
-        return $this->is_promoted && 
-               $this->promoted_until && 
-               $this->promoted_until->isFuture();
+        return $this->is_promoted &&
+            $this->promoted_until &&
+            $this->promoted_until->isFuture();
     }
 }

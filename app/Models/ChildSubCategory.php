@@ -4,14 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
-class Category extends Model
+class ChildSubCategory extends Model
 {
     use HasFactory;
 
     protected $fillable = [
+        'subcategory_id',
         'name',
         'slug',
         'description',
@@ -24,9 +26,10 @@ class Category extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'sort_order' => 'integer',
+        'subcategory_id' => 'integer',
     ];
 
-// Automatically generate slug when creating
+    // Automatically generate slug when creating
     protected static function boot()
     {
         parent::boot();
@@ -39,26 +42,14 @@ class Category extends Model
     }
 
     // Relationships
-    public function subcategories(): HasMany
+    public function subcategory(): BelongsTo
     {
-        return $this->hasMany(Subcategory::class)->orderBy('sort_order')->orderBy('name');
+        return $this->belongsTo(Subcategory::class);
     }
 
     public function items(): HasMany
     {
         return $this->hasMany(Item::class);
-    }
-
-    // Get all items through subcategories and child subcategories
-    public function allItems()
-    {
-        return Item::whereHas('category', function ($query) {
-            $query->where('id', $this->id);
-        })->orWhereHas('subcategory.category', function ($query) {
-            $query->where('id', $this->id);
-        })->orWhereHas('childSubcategory.subcategory.category', function ($query) {
-            $query->where('id', $this->id);
-        });
     }
 
     // Scopes
@@ -72,10 +63,20 @@ class Category extends Model
         return $query->orderBy('sort_order')->orderBy('name');
     }
 
-    // Get total items count for this category
-    public function getItemsCountAttribute()
+    public function scopeBySubcategory($query, $subcategoryId)
     {
-        return $this->allItems()->count();
+        return $query->where('subcategory_id', $subcategoryId);
     }
 
+    // Get category through subcategory
+    public function getCategoryAttribute()
+    {
+        return $this->subcategory->category ?? null;
+    }
+
+    // Get total items count for this child subcategory
+    public function getItemsCountAttribute()
+    {
+        return $this->items()->count();
+    }
 }

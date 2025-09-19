@@ -4,14 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
-class Category extends Model
+class SubCategory extends Model
 {
-    use HasFactory;
+     use HasFactory;
 
     protected $fillable = [
+        'category_id',
         'name',
         'slug',
         'description',
@@ -24,9 +26,10 @@ class Category extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'sort_order' => 'integer',
+        'category_id' => 'integer',
     ];
 
-// Automatically generate slug when creating
+    // Automatically generate slug when creating
     protected static function boot()
     {
         parent::boot();
@@ -39,9 +42,14 @@ class Category extends Model
     }
 
     // Relationships
-    public function subcategories(): HasMany
+    public function category(): BelongsTo
     {
-        return $this->hasMany(Subcategory::class)->orderBy('sort_order')->orderBy('name');
+        return $this->belongsTo(Category::class);
+    }
+
+    public function childSubcategories(): HasMany
+    {
+        return $this->hasMany(ChildSubcategory::class)->orderBy('sort_order')->orderBy('name');
     }
 
     public function items(): HasMany
@@ -49,16 +57,13 @@ class Category extends Model
         return $this->hasMany(Item::class);
     }
 
-    // Get all items through subcategories and child subcategories
+    // Get all items through child subcategories too
     public function allItems()
     {
-        return Item::whereHas('category', function ($query) {
-            $query->where('id', $this->id);
-        })->orWhereHas('subcategory.category', function ($query) {
-            $query->where('id', $this->id);
-        })->orWhereHas('childSubcategory.subcategory.category', function ($query) {
-            $query->where('id', $this->id);
-        });
+        return Item::where('subcategory_id', $this->id)
+            ->orWhereHas('childSubcategory', function ($query) {
+                $query->where('subcategory_id', $this->id);
+            });
     }
 
     // Scopes
@@ -72,10 +77,14 @@ class Category extends Model
         return $query->orderBy('sort_order')->orderBy('name');
     }
 
-    // Get total items count for this category
+    public function scopeByCategory($query, $categoryId)
+    {
+        return $query->where('category_id', $categoryId);
+    }
+
+    // Get total items count for this subcategory
     public function getItemsCountAttribute()
     {
         return $this->allItems()->count();
     }
-
 }

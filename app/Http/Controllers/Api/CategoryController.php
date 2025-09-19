@@ -3,373 +3,413 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\Category;
-use App\Models\Course;
-use App\Models\Semester;
-use App\Models\Subject;
-use App\Models\University;
-use App\Models\EntryCategory;
+use App\Models\Subcategory;
+use App\Models\ChildSubcategory;
+use App\Models\Item;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Validator;
 use App\Http\Controllers\Controller;
 
 class CategoryController extends Controller
 {
-    // Cache duration in minutes (1 hour to match Flutter cache)
+    // Cache duration in minutes (1 hour)
     private const CACHE_DURATION = 60;
 
     /**
-     * Get all courses
-     * Endpoint: GET /courses
+     * Get hierarchical category structure for item selection
+     * Endpoint: GET /categories/hierarchy
      */
-    public function getCourses(Request $request): JsonResponse
+    public function getCategoryHierarchy(Request $request): JsonResponse
     {
-        $semesterId = $request->query('semester_id');
-        $universityId = $request->query('university_id');
-        
-        $cacheKey = "courses_semester_{$semesterId}_university_{$universityId}";
-        
-        return Cache::remember($cacheKey, self::CACHE_DURATION, function () use ($semesterId, $universityId) {
-            $query = Course::where('status', 'active');
-            
-            if ($semesterId) {
-                $query->whereHas('semesters', function ($q) use ($semesterId) {
-                    $q->where('semester_id', $semesterId);
-                });
-            }
-            
-            if ($universityId) {
-                $query->where('university_id', $universityId);
-            }
-            
-            $courses = $query->with(['university:id,name', 'department:id,name'])
-                ->orderBy('name')
-                ->get();
+        try {
+            $cacheKey = 'category_hierarchy_' . md5($request->getQueryString() ?? '');
 
-            return response()->json([
-                'success' => true,
-                'data' => $courses->map(function ($course) {
+            $data = Cache::remember($cacheKey, self::CACHE_DURATION, function () use ($request) {
+                $query = Category::with(['subcategories.childSubcategories'])
+                    ->where('is_active', true)
+                    ->orderBy('sort_order')
+                    ->orderBy('name');
+
+                // Search functionality across all levels
+                if ($request->has('search') && !empty($request->search)) {
+                    $search = $request->search;
+                    $query->where(function ($q) use ($search) {
+                        $q->where('name', 'LIKE', "%{$search}%")
+                          ->orWhere('description', 'LIKE', "%{$search}%")
+                          ->orWhereHas('subcategories', function ($sq) use ($search) {
+                              $sq->where('name', 'LIKE', "%{$search}%")
+                                ->orWhere('description', 'LIKE', "%{$search}%")
+                                ->orWhereHas('childSubcategories', function ($csq) use ($search) {
+                                    $csq->where('name', 'LIKE', "%{$search}%")
+                                       ->orWhere('description', 'LIKE', "%{$search}%");
+                                });
+                          });
+                    });
+                }
+
+                $categories = $query->get();
+
+                return $categories->map(function ($category) {
                     return [
-                        'id' => $course->id,
-                        'name' => $course->name,
-                        'code' => $course->code,
-                        'description' => $course->description,
-                        'duration' => $course->duration,
-                        'degree_type' => $course->degree_type,
-                        'university_id' => $course->university_id,
-                        'university_name' => $course->university->name ?? null,
-                        'department_name' => $course->department->name ?? null,
-                        'total_semesters' => $course->total_semesters,
-                        'created_at' => $course->created_at,
-                    ];
-                })->toArray()
-            ]);
-        });
-    }
-
-    /**
-     * Get entry categories (for item classification)
-     * Endpoint: GET /entry-categories
-     */
-    public function getEntryCategories(): JsonResponse
-    {
-        return Cache::remember('entry_categories', self::CACHE_DURATION, function () {
-            $entryCategories = EntryCategory::where('status', 'active')
-                ->orderBy('name')
-                ->get();
-
-            // If no categories in database, return default categories
-            if ($entryCategories->isEmpty()) {
-                $defaultCategories = $this->getDefaultCategories();
-                
-                return response()->json([
-                    'success' => true,
-                    'data' => $defaultCategories
-                ]);
-            }
-
-            return response()->json([
-                'success' => true,
-                'data' => $entryCategories->map(function ($category) {
-                    return [
-                        'id' => $category->id,
+                        'id' => (string) $category->id,
                         'name' => $category->name,
+                        'slug' => $category->slug,
                         'description' => $category->description,
                         'icon' => $category->icon,
                         'color' => $category->color,
-                        'created_at' => $category->created_at,
+                        'sort_order' => $category->sort_order,
+                        'items_count' => $this->getCategoryItemCount($category->id),
+                        'subcategories' => $category->subcategories->map(function ($subcategory) {
+                            return [
+                                'id' => (string) $subcategory->id,
+                                'category_id' => (string) $subcategory->category_id,
+                                'name' => $subcategory->name,
+                                'slug' => $subcategory->slug,
+                                'description' => $subcategory->description,
+                                'icon' => $subcategory->icon,
+                                'color' => $subcategory->color,
+                                'sort_order' => $subcategory->sort_order,
+                                'items_count' => $this->getSubcategoryItemCount($subcategory->id),
+                                'child_subcategories' => $subcategory->childSubcategories->map(function ($childSubcategory) {
+                                    return [
+                                        'id' => (string) $childSubcategory->id,
+                                        'subcategory_id' => (string) $childSubcategory->subcategory_id,
+                                        'name' => $childSubcategory->name,
+                                        'slug' => $childSubcategory->slug,
+                                        'description' => $childSubcategory->description,
+                                        'icon' => $childSubcategory->icon,
+                                        'color' => $childSubcategory->color,
+                                        'sort_order' => $childSubcategory->sort_order,
+                                        'items_count' => $this->getChildSubcategoryItemCount($childSubcategory->id),
+                                    ];
+                                })->toArray(),
+                            ];
+                        })->toArray(),
                     ];
-                })->toArray()
-            ]);
-        });
-    }
-
-    /**
-     * Get all semesters
-     * Endpoint: GET /semesters
-     */
-    public function getSemesters(Request $request): JsonResponse
-    {
-        $courseId = $request->query('course_id');
-        
-        $cacheKey = "semesters_course_{$courseId}";
-        
-        return Cache::remember($cacheKey, self::CACHE_DURATION, function () use ($courseId) {
-            $query = Semester::where('status', 'active');
-            
-            if ($courseId) {
-                $query->whereHas('courses', function ($q) use ($courseId) {
-                    $q->where('course_id', $courseId);
-                });
-            }
-            
-            $semesters = $query->orderBy('sequence')->get();
-
-            // If no semesters in database, return default semesters
-            if ($semesters->isEmpty()) {
-                $defaultSemesters = $this->generateDefaultSemesters();
-                
-                return response()->json([
-                    'success' => true,
-                    'data' => $defaultSemesters
-                ]);
-            }
+                })->toArray();
+            });
 
             return response()->json([
                 'success' => true,
-                'data' => $semesters->map(function ($semester) {
-                    return [
-                        'id' => $semester->id,
-                        'name' => $semester->name,
-                        'sequence' => $semester->sequence,
-                        'duration' => $semester->duration ?? '6 months',
-                        'start_month' => $semester->start_month,
-                        'end_month' => $semester->end_month,
-                        'academic_year' => $semester->academic_year,
-                        'created_at' => $semester->created_at,
-                    ];
-                })->toArray()
+                'data' => $data,
+                'total_categories' => count($data),
+                'category_names' => $this->getCategoryNames(),
             ]);
-        });
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch category hierarchy',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
-     * Get all subjects
-     * Endpoint: GET /subjects
+     * Get flattened categories for easy selection
+     * Endpoint: GET /categories/flat
      */
-    public function getSubjects(Request $request): JsonResponse
+    public function getFlatCategories(Request $request): JsonResponse
     {
-        $courseId = $request->query('course_id');
-        $semesterId = $request->query('semester_id');
-        $universityId = $request->query('university_id');
-        
-        $cacheKey = "subjects_course_{$courseId}_semester_{$semesterId}_university_{$universityId}";
-        
-        return Cache::remember($cacheKey, self::CACHE_DURATION, function () use ($courseId, $semesterId, $universityId) {
-            $query = Subject::where('status', 'active');
-            
-            if ($courseId) {
-                $query->where('course_id', $courseId);
-            }
-            
-            if ($semesterId) {
-                $query->where('semester_id', $semesterId);
-            }
-            
-            if ($universityId) {
-                $query->where('university_id', $universityId);
-            }
-            
-            $subjects = $query->with(['course:id,name', 'semester:id,name'])
+        try {
+            $cacheKey = 'flat_categories_' . md5($request->getQueryString() ?? '');
+
+            $data = Cache::remember($cacheKey, self::CACHE_DURATION, function () use ($request) {
+                $flatCategories = [];
+
+                // Get categories with their relationships
+                $categories = Category::with(['subcategories.childSubcategories'])
+                    ->where('is_active', true)
+                    ->orderBy('sort_order')
+                    ->orderBy('name')
+                    ->get();
+
+                foreach ($categories as $category) {
+                    // Add main category
+                    $flatCategories[] = [
+                        'id' => (string) $category->id,
+                        'name' => $category->name,
+                        'full_path' => $category->name,
+                        'level' => 'category',
+                        'category_id' => (string) $category->id,
+                        'subcategory_id' => null,
+                        'child_subcategory_id' => null,
+                        'icon' => $category->icon,
+                        'description' => $category->description,
+                        'items_count' => $this->getCategoryItemCount($category->id),
+                    ];
+
+                    // Add subcategories
+                    foreach ($category->subcategories as $subcategory) {
+                        $flatCategories[] = [
+                            'id' => (string) $subcategory->id,
+                            'name' => $subcategory->name,
+                            'full_path' => $category->name . ' > ' . $subcategory->name,
+                            'level' => 'subcategory',
+                            'category_id' => (string) $category->id,
+                            'subcategory_id' => (string) $subcategory->id,
+                            'child_subcategory_id' => null,
+                            'icon' => $subcategory->icon ?: $category->icon,
+                            'description' => $subcategory->description,
+                            'items_count' => $this->getSubcategoryItemCount($subcategory->id),
+                        ];
+
+                        // Add child subcategories
+                        foreach ($subcategory->childSubcategories as $childSubcategory) {
+                            $flatCategories[] = [
+                                'id' => (string) $childSubcategory->id,
+                                'name' => $childSubcategory->name,
+                                'full_path' => $category->name . ' > ' . $subcategory->name . ' > ' . $childSubcategory->name,
+                                'level' => 'child_subcategory',
+                                'category_id' => (string) $category->id,
+                                'subcategory_id' => (string) $subcategory->id,
+                                'child_subcategory_id' => (string) $childSubcategory->id,
+                                'icon' => $childSubcategory->icon ?: $subcategory->icon ?: $category->icon,
+                                'description' => $childSubcategory->description,
+                                'items_count' => $this->getChildSubcategoryItemCount($childSubcategory->id),
+                            ];
+                        }
+                    }
+                }
+
+                // Apply search filter if provided
+                if ($request->has('search') && !empty($request->search)) {
+                    $search = strtolower($request->search);
+                    $flatCategories = array_filter($flatCategories, function ($item) use ($search) {
+                        return strpos(strtolower($item['name']), $search) !== false ||
+                               strpos(strtolower($item['full_path']), $search) !== false ||
+                               strpos(strtolower($item['description'] ?? ''), $search) !== false;
+                    });
+                }
+
+                return array_values($flatCategories);
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $data,
+                'total' => count($data),
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch flat categories',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get subcategories by category ID
+     * Endpoint: GET /categories/{categoryId}/subcategories
+     */
+    public function getSubcategories(string $categoryId): JsonResponse
+    {
+        try {
+            $subcategories = Subcategory::with('childSubcategories')
+                ->where('category_id', $categoryId)
+                ->where('is_active', true)
+                ->orderBy('sort_order')
                 ->orderBy('name')
                 ->get();
 
             return response()->json([
                 'success' => true,
-                'data' => $subjects->map(function ($subject) {
+                'data' => $subcategories->map(function ($subcategory) {
                     return [
-                        'id' => $subject->id,
-                        'name' => $subject->name,
-                        'code' => $subject->code,
-                        'description' => $subject->description,
-                        'course_id' => $subject->course_id,
-                        'course_name' => $subject->course->name ?? null,
-                        'semester_id' => $subject->semester_id,
-                        'semester_name' => $subject->semester->name ?? null,
-                        'university_id' => $subject->university_id,
-                        'credits' => $subject->credits,
-                        'created_at' => $subject->created_at,
+                        'id' => (string) $subcategory->id,
+                        'category_id' => (string) $subcategory->category_id,
+                        'name' => $subcategory->name,
+                        'slug' => $subcategory->slug,
+                        'description' => $subcategory->description,
+                        'icon' => $subcategory->icon,
+                        'items_count' => $this->getSubcategoryItemCount($subcategory->id),
+                        'child_subcategories' => $subcategory->childSubcategories->map(function ($child) {
+                            return [
+                                'id' => (string) $child->id,
+                                'subcategory_id' => (string) $child->subcategory_id,
+                                'name' => $child->name,
+                                'slug' => $child->slug,
+                                'description' => $child->description,
+                                'icon' => $child->icon,
+                                'items_count' => $this->getChildSubcategoryItemCount($child->id),
+                            ];
+                        })->toArray(),
                     ];
-                })->toArray()
+                })->toArray(),
             ]);
-        });
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch subcategories',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
-     * Get all universities
-     * Endpoint: GET /universities
+     * Get child subcategories by subcategory ID
+     * Endpoint: GET /subcategories/{subcategoryId}/children
      */
-    public function getUniversities(Request $request): JsonResponse
+    public function getChildSubcategories(string $subcategoryId): JsonResponse
     {
-        $search = $request->query('search');
-        $countryId = $request->query('country_id');
-        $state = $request->query('state');
-        
-        $cacheKey = "universities_search_" . md5($search . $countryId . $state);
-        
-        return Cache::remember($cacheKey, self::CACHE_DURATION, function () use ($search, $countryId, $state) {
-            $query = University::where('status', 'active');
-            
-            if ($search) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('name', 'LIKE', "%{$search}%")
-                      ->orWhere('code', 'LIKE', "%{$search}%")
-                      ->orWhere('city', 'LIKE', "%{$search}%");
-                });
-            }
-            
-            if ($countryId) {
-                $query->where('country_id', $countryId);
-            }
-            
-            if ($state) {
-                $query->where('state', 'LIKE', "%{$state}%");
-            }
-            
-            $universities = $query->orderBy('name')->get();
+        try {
+            $childSubcategories = ChildSubcategory::where('subcategory_id', $subcategoryId)
+                ->where('is_active', true)
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get();
 
             return response()->json([
                 'success' => true,
-                'data' => $universities->map(function ($university) {
+                'data' => $childSubcategories->map(function ($child) {
                     return [
-                        'id' => $university->id,
-                        'name' => $university->name,
-                        'code' => $university->code,
-                        'description' => $university->description,
-                        'city' => $university->city,
-                        'state' => $university->state,
-                        'country_id' => $university->country_id,
-                        'website' => $university->website,
-                        'logo' => $university->logo,
-                        'type' => $university->type,
-                        'established_year' => $university->established_year,
-                        'ranking' => $university->ranking,
-                        'created_at' => $university->created_at,
+                        'id' => (string) $child->id,
+                        'subcategory_id' => (string) $child->subcategory_id,
+                        'name' => $child->name,
+                        'slug' => $child->slug,
+                        'description' => $child->description,
+                        'icon' => $child->icon,
+                        'items_count' => $this->getChildSubcategoryItemCount($child->id),
                     ];
-                })->toArray()
+                })->toArray(),
             ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch child subcategories',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get category path by any level ID
+     * Endpoint: GET /categories/path
+     */
+    public function getCategoryPath(Request $request): JsonResponse
+    {
+        try {
+            $categoryId = $request->query('category_id');
+            $subcategoryId = $request->query('subcategory_id');
+            $childSubcategoryId = $request->query('child_subcategory_id');
+
+            $path = [];
+
+            if ($childSubcategoryId) {
+                $childSubcategory = ChildSubcategory::with('subcategory.category')->find($childSubcategoryId);
+                if ($childSubcategory) {
+                    $path = [
+                        'category' => [
+                            'id' => (string) $childSubcategory->subcategory->category->id,
+                            'name' => $childSubcategory->subcategory->category->name,
+                        ],
+                        'subcategory' => [
+                            'id' => (string) $childSubcategory->subcategory->id,
+                            'name' => $childSubcategory->subcategory->name,
+                        ],
+                        'child_subcategory' => [
+                            'id' => (string) $childSubcategory->id,
+                            'name' => $childSubcategory->name,
+                        ],
+                    ];
+                }
+            } elseif ($subcategoryId) {
+                $subcategory = Subcategory::with('category')->find($subcategoryId);
+                if ($subcategory) {
+                    $path = [
+                        'category' => [
+                            'id' => (string) $subcategory->category->id,
+                            'name' => $subcategory->category->name,
+                        ],
+                        'subcategory' => [
+                            'id' => (string) $subcategory->id,
+                            'name' => $subcategory->name,
+                        ],
+                    ];
+                }
+            } elseif ($categoryId) {
+                $category = Category::find($categoryId);
+                if ($category) {
+                    $path = [
+                        'category' => [
+                            'id' => (string) $category->id,
+                            'name' => $category->name,
+                        ],
+                    ];
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $path,
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get category path',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get all category names for filtering
+     */
+    public function getCategoryNames(): array
+    {
+        return Cache::remember('category_names', self::CACHE_DURATION, function () {
+            return Category::where('is_active', true)
+                ->orderBy('name')
+                ->pluck('name')
+                ->prepend('All')
+                ->toArray();
         });
     }
 
     /**
-     * Clear cache for specific key or all cache
-     * Endpoint: POST /clear-cache
+     * Clear all category-related cache
      */
-    public function clearCache(Request $request): JsonResponse
+    public function clearCache(): JsonResponse
     {
-        $key = $request->input('key');
-        
-        if ($key) {
-            // Clear specific cache
-            Cache::forget($key);
-            $message = "Cache cleared for key: {$key}";
-        } else {
-            // Clear all category-related cache
-            $cacheKeys = [
-                'courses*',
-                'entry_categories',
-                'semesters*',
-                'subjects*',
-                'universities*',
-            ];
+        $keys = [
+            'category_hierarchy_*',
+            'flat_categories_*',
+            'category_names',
+        ];
 
-            // Since we can't use wildcards directly, we flush all cache
-            Cache::flush();
-            $message = "All cache cleared successfully";
-        }
+        Cache::flush(); // Clear all cache for simplicity
 
         return response()->json([
             'success' => true,
-            'message' => $message
+            'message' => 'Category cache cleared successfully'
         ]);
     }
 
-    /**
-     * Default categories (fallback data)
-     */
-    private function getDefaultCategories(): array
+    // Helper methods for item counts
+    private function getCategoryItemCount(int $categoryId): int
     {
-        return [
-            [
-                'id' => 1,
-                'name' => 'Engineering',
-                'description' => 'Engineering courses',
-                'icon' => '🔧',
-                'color' => '#FF6B6B',
-                'created_at' => now()
-            ],
-            [
-                'id' => 2,
-                'name' => 'Medical',
-                'description' => 'Medical courses',
-                'icon' => '🏥',
-                'color' => '#4ECDC4',
-                'created_at' => now()
-            ],
-            [
-                'id' => 3,
-                'name' => 'Arts',
-                'description' => 'Arts courses',
-                'icon' => '🎨',
-                'color' => '#45B7D1',
-                'created_at' => now()
-            ],
-            [
-                'id' => 4,
-                'name' => 'Commerce',
-                'description' => 'Commerce courses',
-                'icon' => '💼',
-                'color' => '#F39C12',
-                'created_at' => now()
-            ],
-            [
-                'id' => 5,
-                'name' => 'Science',
-                'description' => 'Science courses',
-                'icon' => '🔬',
-                'color' => '#9B59B6',
-                'created_at' => now()
-            ],
-            [
-                'id' => 6,
-                'name' => 'Law',
-                'description' => 'Law courses',
-                'icon' => '⚖️',
-                'color' => '#34495E',
-                'created_at' => now()
-            ],
-        ];
+        return Item::where('category_id', $categoryId)
+            ->where('status', 'active')
+            ->count();
     }
 
-    /**
-     * Default semesters (fallback data)
-     */
-    private function generateDefaultSemesters(): array
+    private function getSubcategoryItemCount(int $subcategoryId): int
     {
-        $semesters = [];
-        for ($i = 1; $i <= 8; $i++) {
-            $semesters[] = [
-                'id' => $i,
-                'name' => "Semester {$i}",
-                'sequence' => $i,
-                'duration' => '6 months',
-                'start_month' => ($i % 2 === 1) ? 'July' : 'January',
-                'end_month' => ($i % 2 === 1) ? 'December' : 'June',
-                'academic_year' => ceil($i / 2),
-                'created_at' => now(),
-            ];
-        }
-        return $semesters;
+        return Item::where('subcategory_id', $subcategoryId)
+            ->where('status', 'active')
+            ->count();
+    }
+
+    private function getChildSubcategoryItemCount(int $childSubcategoryId): int
+    {
+        return Item::where('child_subcategory_id', $childSubcategoryId)
+            ->where('status', 'active')
+            ->count();
     }
 }
