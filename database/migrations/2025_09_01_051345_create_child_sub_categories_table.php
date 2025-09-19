@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('child_sub_categories', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('subcategory_id')->constrained()->onDelete('cascade');
+            $table->foreignId('sub_category_id')->constrained()->onDelete('cascade');
             $table->string('name');
             $table->string('slug');
             $table->text('description')->nullable();
@@ -23,8 +23,8 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamps();
             
-            $table->unique(['subcategory_id', 'slug']);
-            $table->index(['subcategory_id', 'is_active', 'sort_order']);
+            $table->unique(['sub_category_id', 'slug']);
+            $table->index(['sub_category_id', 'is_active', 'sort_order']);
         });
     }
 
