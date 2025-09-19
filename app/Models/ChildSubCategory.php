@@ -12,8 +12,10 @@ class ChildSubCategory extends Model
 {
     use HasFactory;
 
+    protected $table = 'child_sub_categories'; // Add this line to match your table name
+
     protected $fillable = [
-        'subcategory_id',
+        'sub_category_id',
         'name',
         'slug',
         'description',
@@ -26,7 +28,7 @@ class ChildSubCategory extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'sort_order' => 'integer',
-        'subcategory_id' => 'integer',
+        'sub_category_id' => 'integer',
     ];
 
     // Automatically generate slug when creating
@@ -42,14 +44,14 @@ class ChildSubCategory extends Model
     }
 
     // Relationships
-    public function subcategory(): BelongsTo
+    public function subCategory(): BelongsTo
     {
-        return $this->belongsTo(Subcategory::class);
+        return $this->belongsTo(SubCategory::class, 'sub_category_id');
     }
 
     public function items(): HasMany
     {
-        return $this->hasMany(Item::class);
+        return $this->hasMany(Item::class, 'child_sub_category_id');
     }
 
     // Scopes
@@ -63,15 +65,15 @@ class ChildSubCategory extends Model
         return $query->orderBy('sort_order')->orderBy('name');
     }
 
-    public function scopeBySubcategory($query, $subcategoryId)
+    public function scopeBySubCategory($query, $subCategoryId)
     {
-        return $query->where('subcategory_id', $subcategoryId);
+        return $query->where('sub_category_id', $subCategoryId);
     }
 
     // Get category through subcategory
     public function getCategoryAttribute()
     {
-        return $this->subcategory->category ?? null;
+        return $this->subCategory->category ?? null;
     }
 
     // Get total items count for this child subcategory

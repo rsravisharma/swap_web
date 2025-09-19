@@ -10,7 +10,9 @@ use Illuminate\Support\Str;
 
 class SubCategory extends Model
 {
-     use HasFactory;
+    use HasFactory;
+
+    protected $table = 'sub_categories'; // Add this line to match your table name
 
     protected $fillable = [
         'category_id',
@@ -47,22 +49,22 @@ class SubCategory extends Model
         return $this->belongsTo(Category::class);
     }
 
-    public function childSubcategories(): HasMany
+    public function childSubCategories(): HasMany
     {
-        return $this->hasMany(ChildSubcategory::class)->orderBy('sort_order')->orderBy('name');
+        return $this->hasMany(ChildSubCategory::class, 'sub_category_id')->orderBy('sort_order')->orderBy('name');
     }
 
     public function items(): HasMany
     {
-        return $this->hasMany(Item::class);
+        return $this->hasMany(Item::class, 'sub_category_id');
     }
 
     // Get all items through child subcategories too
     public function allItems()
     {
-        return Item::where('subcategory_id', $this->id)
-            ->orWhereHas('childSubcategory', function ($query) {
-                $query->where('subcategory_id', $this->id);
+        return Item::where('sub_category_id', $this->id)
+            ->orWhereHas('childSubCategory', function ($query) {
+                $query->where('sub_category_id', $this->id);
             });
     }
 

@@ -50,12 +50,13 @@ Route::prefix('categories')->group(function () {
     Route::get('flat', [CategoryController::class, 'getFlatCategories']);
     Route::get('names', [CategoryController::class, 'getCategoryNames']);
     Route::get('path', [CategoryController::class, 'getCategoryPath']);
-    Route::get('{categoryId}/subcategories', [CategoryController::class, 'getSubcategories']);
+    
+    Route::get('{categoryId}/sub-categories', [CategoryController::class, 'getSubCategories']);
     Route::delete('cache', [CategoryController::class, 'clearCache']);
 });
 
-Route::prefix('subcategories')->group(function () {
-    Route::get('{subcategoryId}/children', [CategoryController::class, 'getChildSubcategories']);
+Route::prefix('sub-categories')->group(function () {
+    Route::get('{subCategoryId}/children', [CategoryController::class, 'getChildSubCategories']);
 });
 
 // Location Routes (Public)

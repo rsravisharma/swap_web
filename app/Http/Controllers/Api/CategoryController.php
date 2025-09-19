@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\Category;
-use App\Models\Subcategory;
-use App\Models\ChildSubcategory;
+use App\Models\SubCategory;
+use App\Models\ChildSubCategory;
 use App\Models\Item;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -26,7 +26,8 @@ class CategoryController extends Controller
             $cacheKey = 'category_hierarchy_' . md5($request->getQueryString() ?? '');
 
             $data = Cache::remember($cacheKey, self::CACHE_DURATION, function () use ($request) {
-                $query = Category::with(['subcategories.childSubcategories'])
+                // FIXED: Changed from 'subcategories.childSubcategories' to 'subCategories.childSubCategories'
+                $query = Category::with(['subCategories.childSubCategories'])
                     ->where('is_active', true)
                     ->orderBy('sort_order')
                     ->orderBy('name');
@@ -37,10 +38,12 @@ class CategoryController extends Controller
                     $query->where(function ($q) use ($search) {
                         $q->where('name', 'LIKE', "%{$search}%")
                           ->orWhere('description', 'LIKE', "%{$search}%")
-                          ->orWhereHas('subcategories', function ($sq) use ($search) {
+                          // FIXED: Changed from 'subcategories' to 'subCategories'
+                          ->orWhereHas('subCategories', function ($sq) use ($search) {
                               $sq->where('name', 'LIKE', "%{$search}%")
                                 ->orWhere('description', 'LIKE', "%{$search}%")
-                                ->orWhereHas('childSubcategories', function ($csq) use ($search) {
+                                // FIXED: Changed from 'childSubcategories' to 'childSubCategories'
+                                ->orWhereHas('childSubCategories', function ($csq) use ($search) {
                                     $csq->where('name', 'LIKE', "%{$search}%")
                                        ->orWhere('description', 'LIKE', "%{$search}%");
                                 });
@@ -60,28 +63,31 @@ class CategoryController extends Controller
                         'color' => $category->color,
                         'sort_order' => $category->sort_order,
                         'items_count' => $this->getCategoryItemCount($category->id),
-                        'subcategories' => $category->subcategories->map(function ($subcategory) {
+                        // FIXED: Changed key from 'subcategories' to 'sub_categories'
+                        'sub_categories' => $category->subCategories->map(function ($subCategory) {
                             return [
-                                'id' => (string) $subcategory->id,
-                                'category_id' => (string) $subcategory->category_id,
-                                'name' => $subcategory->name,
-                                'slug' => $subcategory->slug,
-                                'description' => $subcategory->description,
-                                'icon' => $subcategory->icon,
-                                'color' => $subcategory->color,
-                                'sort_order' => $subcategory->sort_order,
-                                'items_count' => $this->getSubcategoryItemCount($subcategory->id),
-                                'child_subcategories' => $subcategory->childSubcategories->map(function ($childSubcategory) {
+                                'id' => (string) $subCategory->id,
+                                'category_id' => (string) $subCategory->category_id,
+                                'name' => $subCategory->name,
+                                'slug' => $subCategory->slug,
+                                'description' => $subCategory->description,
+                                'icon' => $subCategory->icon,
+                                'color' => $subCategory->color,
+                                'sort_order' => $subCategory->sort_order,
+                                'items_count' => $this->getSubCategoryItemCount($subCategory->id),
+                                // FIXED: Changed key from 'child_subcategories' to 'child_sub_categories'
+                                'child_sub_categories' => $subCategory->childSubCategories->map(function ($childSubCategory) {
                                     return [
-                                        'id' => (string) $childSubcategory->id,
-                                        'subcategory_id' => (string) $childSubcategory->subcategory_id,
-                                        'name' => $childSubcategory->name,
-                                        'slug' => $childSubcategory->slug,
-                                        'description' => $childSubcategory->description,
-                                        'icon' => $childSubcategory->icon,
-                                        'color' => $childSubcategory->color,
-                                        'sort_order' => $childSubcategory->sort_order,
-                                        'items_count' => $this->getChildSubcategoryItemCount($childSubcategory->id),
+                                        'id' => (string) $childSubCategory->id,
+                                        'sub_category_id' => (string) $childSubCategory->sub_category_id,
+                                        'name' => $childSubCategory->name,
+                                        'slug' => $childSubCategory->slug,
+                                        'description' => $childSubCategory->description,
+                                        'icon' => $childSubCategory->icon,
+                                        'color' => $childSubCategory->color,
+                                        'sort_order' => $childSubCategory->sort_order,
+                                        // FIXED: Corrected variable name from $childSubcategory to $childSubCategory
+                                        'items_count' => $this->getChildSubCategoryItemCount($childSubCategory->id),
                                     ];
                                 })->toArray(),
                             ];
@@ -119,7 +125,8 @@ class CategoryController extends Controller
                 $flatCategories = [];
 
                 // Get categories with their relationships
-                $categories = Category::with(['subcategories.childSubcategories'])
+                // FIXED: Changed from 'subcategories.childSubcategories' to 'subCategories.childSubCategories'
+                $categories = Category::with(['subCategories.childSubCategories'])
                     ->where('is_active', true)
                     ->orderBy('sort_order')
                     ->orderBy('name')
@@ -133,41 +140,45 @@ class CategoryController extends Controller
                         'full_path' => $category->name,
                         'level' => 'category',
                         'category_id' => (string) $category->id,
-                        'subcategory_id' => null,
-                        'child_subcategory_id' => null,
+                        // FIXED: Changed from 'subcategory_id' to 'sub_category_id'
+                        'sub_category_id' => null,
+                        // FIXED: Changed from 'child_subcategory_id' to 'child_sub_category_id'
+                        'child_sub_category_id' => null,
                         'icon' => $category->icon,
                         'description' => $category->description,
                         'items_count' => $this->getCategoryItemCount($category->id),
                     ];
 
                     // Add subcategories
-                    foreach ($category->subcategories as $subcategory) {
+                    // FIXED: Changed from 'subcategories' to 'subCategories'
+                    foreach ($category->subCategories as $subCategory) {
                         $flatCategories[] = [
-                            'id' => (string) $subcategory->id,
-                            'name' => $subcategory->name,
-                            'full_path' => $category->name . ' > ' . $subcategory->name,
-                            'level' => 'subcategory',
+                            'id' => (string) $subCategory->id,
+                            'name' => $subCategory->name,
+                            'full_path' => $category->name . ' > ' . $subCategory->name,
+                            'level' => 'sub_category',
                             'category_id' => (string) $category->id,
-                            'subcategory_id' => (string) $subcategory->id,
-                            'child_subcategory_id' => null,
-                            'icon' => $subcategory->icon ?: $category->icon,
-                            'description' => $subcategory->description,
-                            'items_count' => $this->getSubcategoryItemCount($subcategory->id),
+                            'sub_category_id' => (string) $subCategory->id,
+                            'child_sub_category_id' => null,
+                            'icon' => $subCategory->icon ?: $category->icon,
+                            'description' => $subCategory->description,
+                            'items_count' => $this->getSubCategoryItemCount($subCategory->id),
                         ];
 
                         // Add child subcategories
-                        foreach ($subcategory->childSubcategories as $childSubcategory) {
+                        // FIXED: Changed from 'childSubcategories' to 'childSubCategories'
+                        foreach ($subCategory->childSubCategories as $childSubCategory) {
                             $flatCategories[] = [
-                                'id' => (string) $childSubcategory->id,
-                                'name' => $childSubcategory->name,
-                                'full_path' => $category->name . ' > ' . $subcategory->name . ' > ' . $childSubcategory->name,
-                                'level' => 'child_subcategory',
+                                'id' => (string) $childSubCategory->id,
+                                'name' => $childSubCategory->name,
+                                'full_path' => $category->name . ' > ' . $subCategory->name . ' > ' . $childSubCategory->name,
+                                'level' => 'child_sub_category',
                                 'category_id' => (string) $category->id,
-                                'subcategory_id' => (string) $subcategory->id,
-                                'child_subcategory_id' => (string) $childSubcategory->id,
-                                'icon' => $childSubcategory->icon ?: $subcategory->icon ?: $category->icon,
-                                'description' => $childSubcategory->description,
-                                'items_count' => $this->getChildSubcategoryItemCount($childSubcategory->id),
+                                'sub_category_id' => (string) $subCategory->id,
+                                'child_sub_category_id' => (string) $childSubCategory->id,
+                                'icon' => $childSubCategory->icon ?: $subCategory->icon ?: $category->icon,
+                                'description' => $childSubCategory->description,
+                                'items_count' => $this->getChildSubCategoryItemCount($childSubCategory->id),
                             ];
                         }
                     }
@@ -205,10 +216,11 @@ class CategoryController extends Controller
      * Get subcategories by category ID
      * Endpoint: GET /categories/{categoryId}/subcategories
      */
-    public function getSubcategories(string $categoryId): JsonResponse
+    public function getSubCategories(string $categoryId): JsonResponse
     {
         try {
-            $subcategories = Subcategory::with('childSubcategories')
+            // FIXED: Changed from 'Subcategory' to 'SubCategory' and 'childSubcategories' to 'childSubCategories'
+            $subCategories = SubCategory::with('childSubCategories')
                 ->where('category_id', $categoryId)
                 ->where('is_active', true)
                 ->orderBy('sort_order')
@@ -217,24 +229,26 @@ class CategoryController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $subcategories->map(function ($subcategory) {
+                'data' => $subCategories->map(function ($subCategory) {
                     return [
-                        'id' => (string) $subcategory->id,
-                        'category_id' => (string) $subcategory->category_id,
-                        'name' => $subcategory->name,
-                        'slug' => $subcategory->slug,
-                        'description' => $subcategory->description,
-                        'icon' => $subcategory->icon,
-                        'items_count' => $this->getSubcategoryItemCount($subcategory->id),
-                        'child_subcategories' => $subcategory->childSubcategories->map(function ($child) {
+                        'id' => (string) $subCategory->id,
+                        'category_id' => (string) $subCategory->category_id,
+                        'name' => $subCategory->name,
+                        'slug' => $subCategory->slug,
+                        'description' => $subCategory->description,
+                        'icon' => $subCategory->icon,
+                        'items_count' => $this->getSubCategoryItemCount($subCategory->id),
+                        // FIXED: Changed key from 'child_subcategories' to 'child_sub_categories'
+                        'child_sub_categories' => $subCategory->childSubCategories->map(function ($child) {
                             return [
                                 'id' => (string) $child->id,
-                                'subcategory_id' => (string) $child->subcategory_id,
+                                // FIXED: Changed from 'subcategory_id' to 'sub_category_id'
+                                'sub_category_id' => (string) $child->sub_category_id,
                                 'name' => $child->name,
                                 'slug' => $child->slug,
                                 'description' => $child->description,
                                 'icon' => $child->icon,
-                                'items_count' => $this->getChildSubcategoryItemCount($child->id),
+                                'items_count' => $this->getChildSubCategoryItemCount($child->id),
                             ];
                         })->toArray(),
                     ];
@@ -254,10 +268,11 @@ class CategoryController extends Controller
      * Get child subcategories by subcategory ID
      * Endpoint: GET /subcategories/{subcategoryId}/children
      */
-    public function getChildSubcategories(string $subcategoryId): JsonResponse
+    public function getChildSubCategories(string $subCategoryId): JsonResponse
     {
         try {
-            $childSubcategories = ChildSubcategory::where('subcategory_id', $subcategoryId)
+            // FIXED: Changed from 'ChildSubcategory' to 'ChildSubCategory' and 'subcategory_id' to 'sub_category_id'
+            $childSubCategories = ChildSubCategory::where('sub_category_id', $subCategoryId)
                 ->where('is_active', true)
                 ->orderBy('sort_order')
                 ->orderBy('name')
@@ -265,15 +280,16 @@ class CategoryController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $childSubcategories->map(function ($child) {
+                'data' => $childSubCategories->map(function ($child) {
                     return [
                         'id' => (string) $child->id,
-                        'subcategory_id' => (string) $child->subcategory_id,
+                        // FIXED: Changed from 'subcategory_id' to 'sub_category_id'
+                        'sub_category_id' => (string) $child->sub_category_id,
                         'name' => $child->name,
                         'slug' => $child->slug,
                         'description' => $child->description,
                         'icon' => $child->icon,
-                        'items_count' => $this->getChildSubcategoryItemCount($child->id),
+                        'items_count' => $this->getChildSubCategoryItemCount($child->id),
                     ];
                 })->toArray(),
             ]);
@@ -295,40 +311,46 @@ class CategoryController extends Controller
     {
         try {
             $categoryId = $request->query('category_id');
-            $subcategoryId = $request->query('subcategory_id');
-            $childSubcategoryId = $request->query('child_subcategory_id');
+            // FIXED: Changed from 'subcategory_id' to 'sub_category_id'
+            $subCategoryId = $request->query('sub_category_id');
+            // FIXED: Changed from 'child_subcategory_id' to 'child_sub_category_id'
+            $childSubCategoryId = $request->query('child_sub_category_id');
 
             $path = [];
 
-            if ($childSubcategoryId) {
-                $childSubcategory = ChildSubcategory::with('subcategory.category')->find($childSubcategoryId);
-                if ($childSubcategory) {
+            if ($childSubCategoryId) {
+                // FIXED: Changed from 'ChildSubcategory' to 'ChildSubCategory' and 'subcategory.category' to 'subCategory.category'
+                $childSubCategory = ChildSubCategory::with('subCategory.category')->find($childSubCategoryId);
+                if ($childSubCategory) {
                     $path = [
                         'category' => [
-                            'id' => (string) $childSubcategory->subcategory->category->id,
-                            'name' => $childSubcategory->subcategory->category->name,
+                            'id' => (string) $childSubCategory->subCategory->category->id,
+                            'name' => $childSubCategory->subCategory->category->name,
                         ],
-                        'subcategory' => [
-                            'id' => (string) $childSubcategory->subcategory->id,
-                            'name' => $childSubcategory->subcategory->name,
+                        // FIXED: Changed from 'subcategory' to 'sub_category'
+                        'sub_category' => [
+                            'id' => (string) $childSubCategory->subCategory->id,
+                            'name' => $childSubCategory->subCategory->name,
                         ],
-                        'child_subcategory' => [
-                            'id' => (string) $childSubcategory->id,
-                            'name' => $childSubcategory->name,
+                        // FIXED: Changed from 'child_subcategory' to 'child_sub_category'
+                        'child_sub_category' => [
+                            'id' => (string) $childSubCategory->id,
+                            'name' => $childSubCategory->name,
                         ],
                     ];
                 }
-            } elseif ($subcategoryId) {
-                $subcategory = Subcategory::with('category')->find($subcategoryId);
-                if ($subcategory) {
+            } elseif ($subCategoryId) {
+                // FIXED: Changed from 'Subcategory' to 'SubCategory'
+                $subCategory = SubCategory::with('category')->find($subCategoryId);
+                if ($subCategory) {
                     $path = [
                         'category' => [
-                            'id' => (string) $subcategory->category->id,
-                            'name' => $subcategory->category->name,
+                            'id' => (string) $subCategory->category->id,
+                            'name' => $subCategory->category->name,
                         ],
-                        'subcategory' => [
-                            'id' => (string) $subcategory->id,
-                            'name' => $subcategory->name,
+                        'sub_category' => [
+                            'id' => (string) $subCategory->id,
+                            'name' => $subCategory->name,
                         ],
                     ];
                 }
@@ -399,16 +421,20 @@ class CategoryController extends Controller
             ->count();
     }
 
-    private function getSubcategoryItemCount(int $subcategoryId): int
+    // FIXED: Changed method name from 'getSubcategoryItemCount' to 'getSubCategoryItemCount'
+    private function getSubCategoryItemCount(int $subCategoryId): int
     {
-        return Item::where('subcategory_id', $subcategoryId)
+        // FIXED: Changed from 'subcategory_id' to 'sub_category_id'
+        return Item::where('sub_category_id', $subCategoryId)
             ->where('status', 'active')
             ->count();
     }
 
-    private function getChildSubcategoryItemCount(int $childSubcategoryId): int
+    // FIXED: Changed method name from 'getChildSubcategoryItemCount' to 'getChildSubCategoryItemCount'
+    private function getChildSubCategoryItemCount(int $childSubCategoryId): int
     {
-        return Item::where('child_subcategory_id', $childSubcategoryId)
+        // FIXED: Changed from 'child_subcategory_id' to 'child_sub_category_id'
+        return Item::where('child_sub_category_id', $childSubCategoryId)
             ->where('status', 'active')
             ->count();
     }

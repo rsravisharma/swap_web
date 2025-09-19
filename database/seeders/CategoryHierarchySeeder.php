@@ -4,8 +4,8 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use App\Models\Category;
-use App\Models\Subcategory;
-use App\Models\ChildSubcategory;
+use App\Models\SubCategory;
+use App\Models\ChildSubCategory;
 use Illuminate\Support\Facades\DB;
 
 class CategoryHierarchySeeder extends Seeder
@@ -14,8 +14,8 @@ class CategoryHierarchySeeder extends Seeder
     {
         DB::transaction(function () {
             // Clear existing data
-            ChildSubcategory::truncate();
-            Subcategory::truncate();
+            ChildSubCategory::truncate();
+            SubCategory::truncate();
             Category::truncate();
 
             $categoriesData = $this->getCategoriesData();
@@ -29,23 +29,23 @@ class CategoryHierarchySeeder extends Seeder
                     'sort_order' => array_search($categoryData['name'], array_column($categoriesData['categories'], 'name')) + 1,
                 ]);
 
-                // Create subcategories
-                foreach ($categoryData['subcategories'] as $index => $subcategoryData) {
-                    $subcategory = Subcategory::create([
+                // Create subcategories - FIXED: changed from 'subcategories' to 'sub_categories'
+                foreach ($categoryData['sub_categories'] as $index => $subCategoryData) {
+                    $subCategory = SubCategory::create([
                         'category_id' => $category->id,
-                        'name' => $subcategoryData['name'],
-                        'description' => $this->getSubcategoryDescription($subcategoryData['name']),
-                        'icon' => $this->getSubcategoryIcon($subcategoryData['name']),
+                        'name' => $subCategoryData['name'],
+                        'description' => $this->getSubCategoryDescription($subCategoryData['name']),
+                        'icon' => $this->getSubCategoryIcon($subCategoryData['name']),
                         'sort_order' => $index + 1,
                     ]);
 
-                    // Create child subcategories if they exist
-                    if (isset($subcategoryData['child_subcategories'])) {
-                        foreach ($subcategoryData['child_subcategories'] as $childIndex => $childSubcategoryData) {
-                            ChildSubcategory::create([
-                                'subcategory_id' => $subcategory->id,
-                                'name' => $childSubcategoryData['name'],
-                                'description' => $this->getChildSubcategoryDescription($childSubcategoryData['name']),
+                    // Create child subcategories if they exist - FIXED: changed key name
+                    if (isset($subCategoryData['child_sub_categories'])) {
+                        foreach ($subCategoryData['child_sub_categories'] as $childIndex => $childSubCategoryData) {
+                            ChildSubCategory::create([
+                                'sub_category_id' => $subCategory->id,
+                                'name' => $childSubCategoryData['name'],
+                                'description' => $this->getChildSubCategoryDescription($childSubCategoryData['name']),
                                 'sort_order' => $childIndex + 1,
                             ]);
                         }
@@ -63,7 +63,7 @@ class CategoryHierarchySeeder extends Seeder
             "categories" => [
                 [
                     "name" => "Books",
-                    "subcategories" => [
+                    "sub_categories" => [
                         ["name" => "Textbooks"],
                         ["name" => "Reference Books"],
                         ["name" => "Fiction Books"],
@@ -76,7 +76,7 @@ class CategoryHierarchySeeder extends Seeder
                 ],
                 [
                     "name" => "Notes & Study Material",
-                    "subcategories" => [
+                    "sub_categories" => [
                         ["name" => "Lecture Notes"],
                         ["name" => "Study Guides"],
                         ["name" => "Assignment Solutions"],
@@ -84,7 +84,7 @@ class CategoryHierarchySeeder extends Seeder
                         ["name" => "Previous Year Papers"],
                         [
                             "name" => "Coaching Institute Notes",
-                            "child_subcategories" => [
+                            "child_sub_categories" => [
                                 ["name" => "Vision IAS"],
                                 ["name" => "Vajiram & Ravi"],
                                 ["name" => "Allen"],
@@ -97,10 +97,10 @@ class CategoryHierarchySeeder extends Seeder
                 ],
                 [
                     "name" => "Competitive Exams",
-                    "subcategories" => [
+                    "sub_categories" => [
                         [
                             "name" => "UPSC",
-                            "child_subcategories" => [
+                            "child_sub_categories" => [
                                 ["name" => "Books"],
                                 ["name" => "Notes"],
                                 ["name" => "Question Banks"],
@@ -109,42 +109,42 @@ class CategoryHierarchySeeder extends Seeder
                         ],
                         [
                             "name" => "SSC",
-                            "child_subcategories" => [
+                            "child_sub_categories" => [
                                 ["name" => "Books"],
                                 ["name" => "Notes"]
                             ]
                         ],
                         [
                             "name" => "Banking (IBPS, SBI, RBI)",
-                            "child_subcategories" => [
+                            "child_sub_categories" => [
                                 ["name" => "Books"],
                                 ["name" => "Notes"]
                             ]
                         ],
                         [
                             "name" => "Railways (RRB)",
-                            "child_subcategories" => [
+                            "child_sub_categories" => [
                                 ["name" => "Books"],
                                 ["name" => "Notes"]
                             ]
                         ],
                         [
                             "name" => "Defence (NDA, CDS, AFCAT)",
-                            "child_subcategories" => [
+                            "child_sub_categories" => [
                                 ["name" => "Books"],
                                 ["name" => "Notes"]
                             ]
                         ],
                         [
                             "name" => "State PSCs",
-                            "child_subcategories" => [
+                            "child_sub_categories" => [
                                 ["name" => "Books"],
                                 ["name" => "Notes"]
                             ]
                         ],
                         [
                             "name" => "JEE / NEET",
-                            "child_subcategories" => [
+                            "child_sub_categories" => [
                                 ["name" => "Books"],
                                 ["name" => "Notes"],
                                 ["name" => "Question Banks"],
@@ -155,7 +155,7 @@ class CategoryHierarchySeeder extends Seeder
                 ],
                 [
                     "name" => "Electronics",
-                    "subcategories" => [
+                    "sub_categories" => [
                         ["name" => "Laptops"],
                         ["name" => "Computers"],
                         ["name" => "Laptop & Computer Accessories"],
@@ -171,7 +171,7 @@ class CategoryHierarchySeeder extends Seeder
                 ],
                 [
                     "name" => "Stationery & Supplies",
-                    "subcategories" => [
+                    "sub_categories" => [
                         ["name" => "Writing Materials"],
                         ["name" => "Notebooks & Registers"],
                         ["name" => "Art Supplies"],
@@ -181,7 +181,7 @@ class CategoryHierarchySeeder extends Seeder
                 ],
                 [
                     "name" => "Lab Equipment",
-                    "subcategories" => [
+                    "sub_categories" => [
                         ["name" => "Laboratory Instruments"],
                         ["name" => "Safety Equipment"],
                         ["name" => "Measuring Tools"],
@@ -190,7 +190,7 @@ class CategoryHierarchySeeder extends Seeder
                 ],
                 [
                     "name" => "Clothing & Accessories",
-                    "subcategories" => [
+                    "sub_categories" => [
                         ["name" => "Clothes (Uniforms, Casuals)"],
                         ["name" => "Shoes"],
                         ["name" => "Bags (Backpacks, Laptop Bags)"],
@@ -199,7 +199,7 @@ class CategoryHierarchySeeder extends Seeder
                 ],
                 [
                     "name" => "Furniture & Hostel Items",
-                    "subcategories" => [
+                    "sub_categories" => [
                         ["name" => "Study Tables"],
                         ["name" => "Chairs"],
                         ["name" => "Beds & Mattresses"],
@@ -210,7 +210,7 @@ class CategoryHierarchySeeder extends Seeder
                 ],
                 [
                     "name" => "Sports & Fitness",
-                    "subcategories" => [
+                    "sub_categories" => [
                         ["name" => "Sports Equipment"],
                         ["name" => "Gym Equipment"],
                         ["name" => "Bicycles"],
@@ -219,7 +219,7 @@ class CategoryHierarchySeeder extends Seeder
                 ],
                 [
                     "name" => "Musical Instruments & Hobbies",
-                    "subcategories" => [
+                    "sub_categories" => [
                         ["name" => "Musical Instruments"],
                         ["name" => "Art & Craft Materials"],
                         ["name" => "Board Games & Puzzles"],
@@ -228,7 +228,7 @@ class CategoryHierarchySeeder extends Seeder
                 ],
                 [
                     "name" => "Miscellaneous",
-                    "subcategories" => [
+                    "sub_categories" => [
                         ["name" => "Calculators"],
                         ["name" => "Project Materials"],
                         ["name" => "Everyday Essentials"],
@@ -277,17 +277,17 @@ class CategoryHierarchySeeder extends Seeder
         return $icons[$name] ?? 'category';
     }
 
-    private function getSubcategoryDescription(string $name): string
+    private function getSubCategoryDescription(string $name): string
     {
         return "Items related to {$name}";
     }
 
-    private function getSubcategoryIcon(string $name): string
+    private function getSubCategoryIcon(string $name): string
     {
         return 'category';
     }
 
-    private function getChildSubcategoryDescription(string $name): string
+    private function getChildSubCategoryDescription(string $name): string
     {
         return "Items related to {$name}";
     }

@@ -26,7 +26,7 @@ class Category extends Model
         'sort_order' => 'integer',
     ];
 
-// Automatically generate slug when creating
+    // Automatically generate slug when creating
     protected static function boot()
     {
         parent::boot();
@@ -39,9 +39,9 @@ class Category extends Model
     }
 
     // Relationships
-    public function subcategories(): HasMany
+    public function subCategories(): HasMany
     {
-        return $this->hasMany(Subcategory::class)->orderBy('sort_order')->orderBy('name');
+        return $this->hasMany(SubCategory::class)->orderBy('sort_order')->orderBy('name');
     }
 
     public function items(): HasMany
@@ -54,9 +54,9 @@ class Category extends Model
     {
         return Item::whereHas('category', function ($query) {
             $query->where('id', $this->id);
-        })->orWhereHas('subcategory.category', function ($query) {
+        })->orWhereHas('subCategory.category', function ($query) {
             $query->where('id', $this->id);
-        })->orWhereHas('childSubcategory.subcategory.category', function ($query) {
+        })->orWhereHas('childSubCategory.subCategory.category', function ($query) {
             $query->where('id', $this->id);
         });
     }
@@ -77,5 +77,4 @@ class Category extends Model
     {
         return $this->allItems()->count();
     }
-
 }
