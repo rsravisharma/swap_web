@@ -7,35 +7,37 @@ use App\Models\Category;
 use App\Models\SubCategory;
 use App\Models\ChildSubCategory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class CategoryHierarchySeeder extends Seeder
 {
     public function run(): void
     {
-
         DB::transaction(function () {
             // Safe deletion without foreign key issues
             $this->clearExistingData();
 
             $categoriesData = $this->getCategoriesData();
 
-            foreach ($categoriesData['categories'] as $categoryData) {
+            foreach ($categoriesData['categories'] as $catIndex => $categoryData) {
                 // Create category
                 $category = Category::create([
                     'name' => $categoryData['name'],
+                    'slug' => Str::slug($categoryData['name']),
                     'description' => $this->getCategoryDescription($categoryData['name']),
                     'icon' => $this->getCategoryIcon($categoryData['name']),
-                    'sort_order' => array_search($categoryData['name'], array_column($categoriesData['categories'], 'name')) + 1,
+                    'sort_order' => $catIndex + 1,
                 ]);
 
                 // Create subcategories
-                foreach ($categoryData['sub_categories'] as $index => $subCategoryData) {
+                foreach ($categoryData['sub_categories'] as $subIndex => $subCategoryData) {
                     $subCategory = SubCategory::create([
                         'category_id' => $category->id,
                         'name' => $subCategoryData['name'],
+                        'slug' => Str::slug($subCategoryData['name'].'-'.$category->id),
                         'description' => $this->getSubCategoryDescription($subCategoryData['name']),
                         'icon' => $this->getSubCategoryIcon($subCategoryData['name']),
-                        'sort_order' => $index + 1,
+                        'sort_order' => $subIndex + 1,
                     ]);
 
                     // Create child subcategories if they exist
@@ -44,6 +46,7 @@ class CategoryHierarchySeeder extends Seeder
                             ChildSubCategory::create([
                                 'sub_category_id' => $subCategory->id,
                                 'name' => $childSubCategoryData['name'],
+                                'slug' => Str::slug($childSubCategoryData['name'].'-'.$subCategory->id),
                                 'description' => $this->getChildSubCategoryDescription($childSubCategoryData['name']),
                                 'sort_order' => $childIndex + 1,
                             ]);
@@ -53,7 +56,7 @@ class CategoryHierarchySeeder extends Seeder
             }
         });
 
-        $this->command->info('Category hierarchy seeded successfully!');
+        $this->command->info('✅ Category hierarchy seeded successfully!');
     }
 
     private function clearExistingData(): void
@@ -72,7 +75,7 @@ class CategoryHierarchySeeder extends Seeder
         SubCategory::query()->delete();
         Category::query()->delete();
 
-        // Reset auto increment
+        // Reset auto increment (MySQL only)
         if (DB::getDriverName() === 'mysql') {
             DB::statement('ALTER TABLE child_sub_categories AUTO_INCREMENT = 1');
             DB::statement('ALTER TABLE sub_categories AUTO_INCREMENT = 1');
