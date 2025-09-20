@@ -18,7 +18,7 @@ return new class extends Migration
             $table->timestamp('visited_at');
             $table->timestamps();
             
-            $table->unique(['user_id', 'location_id']);
+            $table->unique(['user_id', 'university_id']);
             $table->index(['user_id', 'visited_at']);
         });
     }

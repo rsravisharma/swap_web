@@ -15,20 +15,16 @@ return new class extends Migration
             $table->id();
             $table->enum('type', ['current', 'campus', 'custom', 'online', 'shipping']);
 
-            // General info
-            $table->string('name')->nullable(); // e.g. "IIT Delhi", "User’s Custom Location"
+            $table->string('name')->nullable(); 
             $table->string('address')->nullable();
             $table->foreignId('city_id')->nullable()->constrained()->cascadeOnDelete();
             $table->foreignId('country_id')->nullable()->constrained()->cascadeOnDelete();
 
-            // Coordinates
             $table->decimal('latitude', 10, 8)->nullable();
             $table->decimal('longitude', 11, 8)->nullable();
 
-            // Special links
             $table->foreignId('university_id')->nullable()->constrained()->cascadeOnDelete();
 
-            // Meta
             $table->text('description')->nullable();
             $table->boolean('is_active')->default(true);
             $table->boolean('is_popular')->default(false);
@@ -37,13 +33,10 @@ return new class extends Migration
             $table->foreignId('created_by')->nullable()->constrained('users');
             $table->timestamps();
 
-            // Indexes
             $table->index(['latitude', 'longitude']);
             $table->index(['type', 'is_active']);
             $table->index('is_popular');
             $table->index('is_safe_meetup');
-
-            $table->point('coordinates')->nullable()->spatialIndex(); 
         });
     }
 
