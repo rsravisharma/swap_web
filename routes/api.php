@@ -71,6 +71,7 @@ Route::prefix('location')->group(function () {
     Route::get('meetup', [LocationController::class, 'getMeetupLocations']);
     Route::get('search', [LocationController::class, 'searchLocations']);
     Route::get('nearby', [LocationController::class, 'getNearbyLocations']);
+    Route::get('universities', [LocationController::class, 'getUniversities']);
     
     // Protected location routes
     Route::get('user/recent', [LocationController::class, 'getRecentLocations']);
