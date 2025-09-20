@@ -61,6 +61,7 @@ Route::prefix('sub-categories')->group(function () {
 
 // Location Routes (Public)
 Route::prefix('location')->group(function () {
+    // Public location routes
     Route::get('countries', [LocationController::class, 'getCountries']);
     Route::get('cities', [LocationController::class, 'getCities']);
     Route::get('reverse-geocode', [LocationController::class, 'reverseGeocode']);
@@ -70,6 +71,23 @@ Route::prefix('location')->group(function () {
     Route::get('meetup', [LocationController::class, 'getMeetupLocations']);
     Route::get('search', [LocationController::class, 'searchLocations']);
     Route::get('nearby', [LocationController::class, 'getNearbyLocations']);
+    
+    // Protected location routes
+    Route::get('user/recent', [LocationController::class, 'getRecentLocations']);
+    Route::post('user/recent', [LocationController::class, 'saveRecentLocation']);
+    Route::post('custom', [LocationController::class, 'addCustomLocation']);
+});
+
+// University routes
+Route::prefix('location/university')->group(function () {
+    // Public university routes
+    Route::get('/', [LocationController::class, 'getUniversities']);
+    Route::get('/{identifier}', [LocationController::class, 'getUniversity']);
+    
+    // Protected university routes
+    Route::post('/', [LocationController::class, 'createUniversity']);
+    Route::put('/{id}', [LocationController::class, 'updateUniversity']);
+    Route::delete('/{id}', [LocationController::class, 'deleteUniversity']);
 });
 
 // Legal Routes (Public)
