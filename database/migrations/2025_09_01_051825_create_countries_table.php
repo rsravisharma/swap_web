@@ -23,7 +23,7 @@ return new class extends Migration
             
             $table->index('code');
             $table->index('phone_code');
-            $table->index('is_active', 'name');
+            $table->index(['is_active', 'name']);
         });
     }
 

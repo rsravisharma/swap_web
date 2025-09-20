@@ -12,9 +12,9 @@ class Location extends Model
     protected $fillable = [
         'name',
         'address',
-        'city',
-        'state',
-        'country',
+        'city_id',
+        'country_id',
+        'university_id',
         'latitude',
         'longitude',
         'type',
@@ -43,6 +43,21 @@ class Location extends Model
     public function recentUsers()
     {
         return $this->hasMany(UserRecentLocation::class);
+    }
+
+    public function city()
+    {
+        return $this->belongsTo(City::class);
+    }
+
+    public function country()
+    {
+        return $this->belongsTo(Country::class);
+    }
+
+    public function university()
+    {
+        return $this->belongsTo(University::class);
     }
 
     public function scopeActive($query)

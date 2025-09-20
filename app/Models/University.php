@@ -21,7 +21,8 @@ class University extends Model
         'type',
         'established_year',
         'ranking',
-        'status'
+        'status',
+        'created_by'
     ];
 
     protected $casts = [
@@ -35,6 +36,16 @@ class University extends Model
     public function country()
     {
         return $this->belongsTo(Country::class);
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function recentUsers()
+    {
+        return $this->hasMany(UserRecentUniversity::class);
     }
 
     public function departments()

@@ -22,7 +22,7 @@ return new class extends Migration
             $table->decimal('price', 10, 2);
             $table->enum('condition', ['new', 'like_new', 'good', 'fair', 'poor']);
             $table->enum('status', ['active', 'sold', 'archived'])->default('active');
-            $table->string('location')->nullable();
+            $table->foreignId('location_id')->nullable()->constrained('locations')->cascadeOnDelete();
             $table->enum('contact_method', ['chat', 'phone', 'email'])->default('chat');
             $table->json('tags')->nullable();
             $table->boolean('is_sold')->default(false);

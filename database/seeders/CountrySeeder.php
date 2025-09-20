@@ -14,10 +14,10 @@ class CountrySeeder extends Seeder
     public function run(): void
     {
         $countries = [
+            ['name' => 'India', 'code' => 'IN', 'phone_code' => '+91', 'flag_emoji' => '🇮🇳', 'currency' => 'INR', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
             ['name' => 'United States', 'code' => 'US', 'phone_code' => '+1', 'flag_emoji' => '🇺🇸', 'currency' => 'USD', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
             ['name' => 'Canada', 'code' => 'CA', 'phone_code' => '+1', 'flag_emoji' => '🇨🇦', 'currency' => 'CAD', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
             ['name' => 'United Kingdom', 'code' => 'GB', 'phone_code' => '+44', 'flag_emoji' => '🇬🇧', 'currency' => 'GBP', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
-            ['name' => 'India', 'code' => 'IN', 'phone_code' => '+91', 'flag_emoji' => '🇮🇳', 'currency' => 'INR', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
             ['name' => 'Australia', 'code' => 'AU', 'phone_code' => '+61', 'flag_emoji' => '🇦🇺', 'currency' => 'AUD', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
             ['name' => 'Germany', 'code' => 'DE', 'phone_code' => '+49', 'flag_emoji' => '🇩🇪', 'currency' => 'EUR', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
             ['name' => 'France', 'code' => 'FR', 'phone_code' => '+33', 'flag_emoji' => '🇫🇷', 'currency' => 'EUR', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],

@@ -26,6 +26,7 @@ return new class extends Migration
             $table->unsignedSmallInteger('established_year')->nullable();
             $table->unsignedInteger('ranking')->nullable();
             $table->enum('status', ['active', 'inactive'])->default('active');
+            $table->foreignId('created_by')->nullable()->constrained('users');
             $table->timestamps();
             
             $table->index(['status', 'name']);
