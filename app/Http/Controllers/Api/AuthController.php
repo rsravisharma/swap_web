@@ -1071,4 +1071,22 @@ class AuthController extends Controller
             ], 500);
         }
     }
+
+    public function checkAuth(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        $userId = Auth::id();
+
+        return response()->json([
+            'authenticated' => Auth::check(),
+            'user_id' => $userId,
+            'user' => $user ? [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+            ] : null,
+            'guard' => Auth::getDefaultDriver(),
+            'token_valid' => $request->bearerToken() ? 'Token present' : 'No token'
+        ]);
+    }
 }

@@ -50,7 +50,7 @@ Route::prefix('categories')->group(function () {
     Route::get('flat', [CategoryController::class, 'getFlatCategories']);
     Route::get('names', [CategoryController::class, 'getCategoryNames']);
     Route::get('path', [CategoryController::class, 'getCategoryPath']);
-    
+
     Route::get('{categoryId}/sub-categories', [CategoryController::class, 'getSubCategories']);
     Route::delete('cache', [CategoryController::class, 'clearCache']);
 });
@@ -72,23 +72,12 @@ Route::prefix('location')->group(function () {
     Route::get('search', [LocationController::class, 'searchLocations']);
     Route::get('nearby', [LocationController::class, 'getNearbyLocations']);
     Route::get('universities', [LocationController::class, 'getUniversities']);
-    
-    // Protected location routes
-    Route::get('user/recent', [LocationController::class, 'getRecentLocations']);
-    Route::post('user/recent', [LocationController::class, 'saveRecentLocation']);
-    Route::post('custom', [LocationController::class, 'addCustomLocation']);
 });
 
 // University routes
 Route::prefix('location/university')->group(function () {
-    // Public university routes
     Route::get('/', [LocationController::class, 'getUniversities']);
     Route::get('/{identifier}', [LocationController::class, 'getUniversity']);
-    
-    // Protected university routes
-    Route::post('/', [LocationController::class, 'createUniversity']);
-    Route::put('/{id}', [LocationController::class, 'updateUniversity']);
-    Route::delete('/{id}', [LocationController::class, 'deleteUniversity']);
 });
 
 // Legal Routes (Public)
@@ -111,9 +100,23 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
         Route::put('password', [AuthController::class, 'updatePassword']);
         Route::post('verify-email', [AuthController::class, 'verifyEmail']);
+        Route::get('/debug/auth', [AuthController::class, 'checkAuth']);
     });
 
     Route::post('user/fcm-token', [AuthController::class, 'updateUserFcmToken']);
+
+    Route::prefix('location')->group(function () {
+        Route::get('user/recent', [LocationController::class, 'getRecentLocations']);
+        Route::post('user/recent', [LocationController::class, 'saveRecentLocation']);
+        Route::post('custom', [LocationController::class, 'addCustomLocation']);
+    });
+
+    // University routes
+    Route::prefix('location/university')->group(function () {
+        Route::post('/', [LocationController::class, 'createUniversity']);
+        Route::put('/{id}', [LocationController::class, 'updateUniversity']);
+        Route::delete('/{id}', [LocationController::class, 'deleteUniversity']);
+    });
 
     // ================================
     // CHAT & COMMUNICATION ROUTES

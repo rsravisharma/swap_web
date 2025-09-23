@@ -248,6 +248,16 @@ class LocationController extends Controller
      */
     public function saveRecentLocation(Request $request): JsonResponse
     {
+        // ✅ Check authentication first
+        $userId = Auth::id();
+        if (!$userId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not authenticated',
+                'error' => 'Authentication required to save location'
+            ], 401);
+        }
+
         $validator = Validator::make($request->all(), [
             'location_id' => 'nullable|integer|exists:locations,id',
             'name' => 'required|string|max:255',
@@ -268,44 +278,67 @@ class LocationController extends Controller
         }
 
         try {
-            $userId = Auth::id();
             $data = $validator->validated();
 
-            // If location_id not provided, create a temporary location record
+            // ✅ Enhanced location creation/retrieval
             if (!isset($data['location_id'])) {
-                $location = Location::firstOrCreate([
-                    'latitude' => $data['latitude'],
-                    'longitude' => $data['longitude']
-                ], [
-                    'name' => $data['name'],
-                    'address' => $data['address'] ?? null,
-                    'city_id' => $data['city_id'] ?? null,
-                    'country_id' => $data['country_id'] ?? null,
-                    'university_id' => $data['university_id'] ?? null,
-                    'type' => $data['type'] ?? 'custom',
-                    'is_active' => true,
-                    'created_by' => $userId
-                ]);
+                // Try to find existing location first
+                $location = Location::where([
+                    ['latitude', '=', $data['latitude']],
+                    ['longitude', '=', $data['longitude']],
+                    ['type', '=', $data['type'] ?? 'custom']
+                ])->first();
+
+                // If not found, create new location
+                if (!$location) {
+                    $location = Location::create([
+                        'name' => $data['name'],
+                        'address' => $data['address'] ?? null,
+                        'latitude' => $data['latitude'],
+                        'longitude' => $data['longitude'],
+                        'city_id' => $data['city_id'] ?? null,
+                        'country_id' => $data['country_id'] ?? null,
+                        'university_id' => $data['university_id'] ?? null,
+                        'type' => $data['type'] ?? 'custom',
+                        'is_active' => true,
+                        'created_by' => $userId
+                    ]);
+                }
+
                 $data['location_id'] = $location->id;
             }
 
-            // Save or update recent location
-            UserRecentLocation::updateOrCreate([
+            // ✅ Ensure user_id is set explicitly
+            $recentLocation = UserRecentLocation::updateOrCreate([
                 'user_id' => $userId,
                 'location_id' => $data['location_id']
             ], [
+                'user_id' => $userId, // ✅ Explicitly set user_id
+                'location_id' => $data['location_id'],
                 'visited_at' => now()
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Location saved to recent successfully'
+                'message' => 'Location saved to recent successfully',
+                'data' => [
+                    'id' => $recentLocation->id,
+                    'location_id' => $recentLocation->location_id,
+                    'visited_at' => $recentLocation->visited_at,
+                    'location' => $location ?? Location::find($data['location_id'])
+                ]
             ], 201);
         } catch (\Exception $e) {
+            \Log::error('Error saving recent location', [
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+                'data' => $data ?? null
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to save recent location',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
