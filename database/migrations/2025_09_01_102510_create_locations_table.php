@@ -23,6 +23,9 @@ return new class extends Migration
             $table->string('place_type')->nullable();
             $table->decimal('osm_importance', 8, 6)->nullable();
 
+            $table->json('metadata')->nullable();
+            $table->boolean('manually_edited')->default(false);
+
             $table->string('name')->nullable();
             $table->string('address')->nullable();
             $table->foreignId('city_id')->nullable()->constrained()->cascadeOnDelete();
@@ -39,12 +42,15 @@ return new class extends Migration
             $table->boolean('is_safe_meetup')->default(false);
             $table->integer('popularity_score')->default(0);
             $table->foreignId('created_by')->nullable()->constrained('users');
+            $table->timestamp('last_edited_at')->nullable();
             $table->timestamps();
 
             $table->index(['latitude', 'longitude']);
             $table->index(['geocoding_source', 'geocoding_confidence']);
             $table->index(['geocoding_source', 'geocoded_at']);
             $table->index(['osm_type', 'osm_id']);
+            $table->index('manually_edited');
+            $table->index('last_edited_at');
             $table->index('place_type');
             $table->index(['type', 'is_active']);
             $table->index('is_popular');

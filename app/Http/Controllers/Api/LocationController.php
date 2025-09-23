@@ -14,6 +14,7 @@ use App\Models\Location;
 use App\Models\University;
 use App\Models\UserRecentLocation;
 use App\Services\EnhancedGeocodingService;
+use Illuminate\Support\Facades\Log;
 
 class LocationController extends Controller
 {
@@ -347,6 +348,218 @@ class LocationController extends Controller
                 'message' => 'Failed to save location',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
+        }
+    }
+
+    public function updateLocation(Request $request, $id): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'address' => 'nullable|string|max:500',
+            'city' => 'nullable|string|max:100',
+            'state' => 'nullable|string|max:100',
+            'country' => 'nullable|string|max:100',
+            'postcode' => 'nullable|string|max:20',
+            'house_number' => 'nullable|string|max:50',
+            'road' => 'nullable|string|max:200',
+            'description' => 'nullable|string|max:1000',
+            'city_id' => 'nullable|integer|exists:cities,id',
+            'country_id' => 'nullable|integer|exists:countries,id',
+            'manually_edited' => 'boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $userId = Auth::id();
+            $location = Location::find($id);
+
+            if (!$location) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Location not found'
+                ], 404);
+            }
+
+            if ($location->created_by !== $userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized to update this location'
+                ], 403);
+            }
+
+            $data = $validator->validated();
+
+            // ✅ Get existing metadata and merge with new data
+            $currentMetadata = $location->metadata ?? [];
+
+            // ✅ Build comprehensive metadata
+            $newMetadata = array_merge($currentMetadata, [
+                'house_number' => $data['house_number'] ?? $currentMetadata['house_number'] ?? null,
+                'road' => $data['road'] ?? $currentMetadata['road'] ?? null,
+                'city' => $data['city'] ?? $currentMetadata['city'] ?? null,
+                'state' => $data['state'] ?? $currentMetadata['state'] ?? null,
+                'country' => $data['country'] ?? $currentMetadata['country'] ?? null,
+                'postcode' => $data['postcode'] ?? $currentMetadata['postcode'] ?? null,
+
+                // ✅ Track edit history
+                'edit_history' => array_merge(
+                    $currentMetadata['edit_history'] ?? [],
+                    [[
+                        'edited_at' => now()->toISOString(),
+                        'edited_by' => $userId,
+                        'changes' => array_filter([
+                            'address' => $data['address'] ?? null,
+                            'city' => $data['city'] ?? null,
+                            'state' => $data['state'] ?? null,
+                            'country' => $data['country'] ?? null,
+                            'postcode' => $data['postcode'] ?? null,
+                        ])
+                    ]]
+                ),
+
+                // ✅ Preserve original geocoding data
+                'original_geocoding_source' => $currentMetadata['original_geocoding_source'] ?? $location->geocoding_source,
+                'original_confidence' => $currentMetadata['original_confidence'] ?? $location->geocoding_confidence,
+                'user_edited' => true,
+                'last_edit_method' => 'manual_form',
+            ]);
+
+            // ✅ Update location fields
+            if (isset($data['address'])) {
+                $location->address = $data['address'];
+            }
+
+            // ✅ Try to resolve city/country relationships (optional)
+            if (!empty($data['country'])) {
+                $countryId = $this->findOrCreateCountry($data['country']);
+                if ($countryId) {
+                    $location->country_id = $countryId;
+                    $newMetadata['resolved_country_id'] = $countryId;
+                }
+            }
+
+            if (!empty($data['city']) && !empty($data['state']) && $location->country_id) {
+                $cityId = $this->findOrCreateCity($data['city'], $data['state'], $location->country_id);
+                if ($cityId) {
+                    $location->city_id = $cityId;
+                    $newMetadata['resolved_city_id'] = $cityId;
+                }
+            }
+
+            if (isset($data['description'])) {
+                $location->description = $data['description'];
+            }
+
+            // ✅ Store all metadata as JSON
+            $location->metadata = $newMetadata;
+
+            // ✅ Mark as manually edited
+            $location->manually_edited = true;
+            $location->last_edited_at = now();
+            $location->geocoding_source = 'manual_edit';
+            $location->geocoding_confidence = 1.0;
+            $location->geocoded_at = now();
+
+            $location->save();
+
+            // Load relationships for response
+            $location->load([
+                'city:id,name,state',
+                'country:id,name,code',
+                'university:id,name'
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => $location->id,
+                    'name' => $location->name,
+                    'address' => $location->address,
+                    'latitude' => $location->latitude,
+                    'longitude' => $location->longitude,
+                    'type' => $location->type,
+                    'description' => $location->description,
+
+                    // ✅ Full metadata for frontend
+                    'metadata' => $location->metadata,
+
+                    // ✅ Convenience fields for frontend
+                    'manually_edited' => $location->manually_edited,
+                    'last_edited' => $location->last_edited_at?->toISOString(),
+                    'geocoding_source' => $location->geocoding_source,
+                    'confidence' => $location->geocoding_confidence,
+
+                    // Relationships
+                    'city' => $location->city,
+                    'country' => $location->country,
+                    'university' => $location->university,
+                ],
+                'message' => 'Location updated successfully'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error updating location', [
+                'location_id' => $id,
+                'user_id' => $userId ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update location',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
+
+
+    private function findOrCreateCity(string $cityName, string $stateName, int $countryId): ?int
+    {
+        try {
+            $city = City::firstOrCreate([
+                'name' => $cityName,
+                'state' => $stateName,
+                'country_id' => $countryId,
+            ], [
+                'is_active' => true,
+            ]);
+
+            return $city->id;
+        } catch (\Exception $e) {
+            Log::warning('Could not create city', [
+                'city' => $cityName,
+                'state' => $stateName,
+                'country_id' => $countryId,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Helper method to find or create country
+     */
+    private function findOrCreateCountry(string $countryName): ?int
+    {
+        try {
+            $country = Country::firstOrCreate([
+                'name' => $countryName,
+            ], [
+                'code' => strtoupper(substr($countryName, 0, 2)), // Simple code generation
+                'is_active' => true,
+            ]);
+
+            return $country->id;
+        } catch (\Exception $e) {
+            Log::warning('Could not create country', [
+                'country' => $countryName,
+                'error' => $e->getMessage()
+            ]);
+            return null;
         }
     }
 
