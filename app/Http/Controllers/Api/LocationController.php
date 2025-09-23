@@ -467,6 +467,13 @@ class LocationController extends Controller
 
             $location->save();
 
+            UserRecentLocation::updateOrCreate([
+                'user_id' => $userId,
+                'location_id' => $location->id
+            ], [
+                'visited_at' => now()
+            ]);
+
             // Load relationships for response
             $location->load([
                 'city:id,name,state',
@@ -498,8 +505,12 @@ class LocationController extends Controller
                     'city' => $location->city,
                     'country' => $location->country,
                     'university' => $location->university,
+
+                    // ✅ ADD: Indicate it was added to recent locations
+                    'added_to_recent' => true,
+                    'recent_visited_at' => now()->toISOString(),
                 ],
-                'message' => 'Location updated successfully'
+                'message' => 'Location updated and added to recent locations'
             ]);
         } catch (\Exception $e) {
             Log::error('Error updating location', [
@@ -851,14 +862,23 @@ class LocationController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'address' => 'nullable|string|max:500',
-            'latitude' => 'required|numeric|between:-90,90',
-            'longitude' => 'required|numeric|between:-180,180',
+            'latitude' => 'nullable|numeric|between:-90,90', // Made nullable for manual entry
+            'longitude' => 'nullable|numeric|between:-180,180', // Made nullable for manual entry
             'city_id' => 'nullable|integer|exists:cities,id',
             'country_id' => 'nullable|integer|exists:countries,id',
             'university_id' => 'nullable|integer|exists:universities,id',
             'type' => 'nullable|string|in:current,campus,custom,online,shipping',
             'description' => 'nullable|string|max:1000',
             'is_safe_meetup' => 'boolean',
+
+            // ✅ Add validation for manual address entry (from your Flutter dialog)
+            'city' => 'nullable|string|max:100',
+            'state' => 'nullable|string|max:100',
+            'country' => 'nullable|string|max:100',
+            'postcode' => 'nullable|string|max:20',
+            'house_number' => 'nullable|string|max:50',
+            'road' => 'nullable|string|max:200',
+            'manually_edited' => 'boolean',
         ]);
 
         if ($validator->fails()) {
@@ -869,12 +889,106 @@ class LocationController extends Controller
         }
 
         try {
+            $userId = Auth::id();
             $data = $validator->validated();
-            $data['created_by'] = Auth::id();
+
+            // ✅ Set default values
+            $data['created_by'] = $userId;
             $data['type'] = $data['type'] ?? 'custom';
             $data['is_active'] = true;
 
-            $location = Location::create($data);
+            // ✅ Handle manual address entry (from Flutter dialog)
+            if (!empty($data['city']) || !empty($data['country']) || !empty($data['state'])) {
+                // Try to find or create country
+                if (!empty($data['country']) && empty($data['country_id'])) {
+                    $countryId = $this->findOrCreateCountry($data['country']);
+                    if ($countryId) {
+                        $data['country_id'] = $countryId;
+                    }
+                }
+
+                // Try to find or create city
+                if (!empty($data['city']) && !empty($data['state']) && !empty($data['country_id'])) {
+                    $cityId = $this->findOrCreateCity($data['city'], $data['state'], $data['country_id']);
+                    if ($cityId) {
+                        $data['city_id'] = $cityId;
+                    }
+                }
+
+                // ✅ Build comprehensive metadata from manual entry
+                $metadata = [
+                    'house_number' => $data['house_number'] ?? null,
+                    'road' => $data['road'] ?? null,
+                    'city' => $data['city'] ?? null,
+                    'state' => $data['state'] ?? null,
+                    'country' => $data['country'] ?? null,
+                    'postcode' => $data['postcode'] ?? null,
+                    'manually_created' => true,
+                    'created_method' => 'manual_form',
+                    'created_at' => now()->toISOString(),
+                    'created_by' => $userId,
+                ];
+
+                $data['metadata'] = $metadata;
+            }
+
+            // ✅ Set geocoding info for manually created locations
+            if ($data['manually_edited'] ?? false) {
+                $data['geocoding_source'] = 'manual_entry';
+                $data['geocoding_confidence'] = 1.0;
+                $data['geocoded_at'] = now();
+            }
+
+            // ✅ Remove validation-only fields before creating location
+            $locationData = array_filter($data, function ($key) {
+                return !in_array($key, ['city', 'state', 'country', 'postcode', 'house_number', 'road', 'manually_edited']);
+            }, ARRAY_FILTER_USE_KEY);
+
+            if (empty($data['latitude']) && empty($data['longitude']) && !empty($data['address'])) {
+                // Try to get coordinates from the enhanced geocoding service
+                $geocodedData = $this->geocodeAddress($data['address'], $data);
+
+                if ($geocodedData) {
+                    $data['latitude'] = $geocodedData['latitude'];
+                    $data['longitude'] = $geocodedData['longitude'];
+                    $data['geocoding_source'] = $geocodedData['source'];
+                    $data['geocoding_confidence'] = $geocodedData['confidence'];
+                    $data['geocoded_at'] = now();
+
+                    // Enhance metadata with geocoded info
+                    if (isset($data['metadata'])) {
+                        $data['metadata'] = array_merge($data['metadata'], [
+                            'geocoded_from_address' => true,
+                            'original_address_input' => $data['address'],
+                            'geocoded_address' => $geocodedData['geocoded_address'],
+                            'geocoding_metadata' => $geocodedData['metadata'],
+                        ]);
+                    }
+
+                    Log::info('Successfully geocoded custom location', [
+                        'original_address' => $data['address'],
+                        'coordinates' => [$geocodedData['latitude'], $geocodedData['longitude']],
+                        'confidence' => $geocodedData['confidence']
+                    ]);
+                }
+            }
+
+            $location = Location::create($locationData);
+
+            // ✅ ADD TO RECENT LOCATIONS: Add immediately after creation
+            $recentLocation = UserRecentLocation::updateOrCreate([
+                'user_id' => $userId,
+                'location_id' => $location->id
+            ], [
+                'visited_at' => now()
+            ]);
+
+            Log::info('Custom location created and added to recent locations', [
+                'user_id' => $userId,
+                'location_id' => $location->id,
+                'address' => $location->address,
+                'type' => $location->type
+            ]);
 
             // Load relationships for response
             $location->load([
@@ -885,25 +999,134 @@ class LocationController extends Controller
 
             // Clear relevant caches
             Cache::forget('all_locations');
-            Cache::forget("locations_by_type_{$data['type']}");
+            Cache::forget("locations_by_type_{$location->type}");
 
-            if ($data['type'] === 'campus') {
+            if ($location->type === 'campus') {
                 Cache::forget('campus_locations');
             }
 
             return response()->json([
                 'success' => true,
-                'data' => $location,
-                'message' => 'Custom location added successfully'
+                'data' => [
+                    'id' => $location->id,
+                    'name' => $location->name,
+                    'address' => $location->address,
+                    'latitude' => $location->latitude,
+                    'longitude' => $location->longitude,
+                    'type' => $location->type,
+                    'description' => $location->description,
+                    'is_safe_meetup' => $location->is_safe_meetup,
+
+                    // ✅ Include metadata for frontend
+                    'metadata' => $location->metadata ?? [],
+
+                    // ✅ Geocoding info
+                    'geocoding_source' => $location->geocoding_source,
+                    'confidence' => $location->geocoding_confidence,
+                    'geocoded_at' => $location->geocoded_at,
+
+                    // ✅ Recent location info
+                    'added_to_recent' => true,
+                    'recent_visited_at' => $recentLocation->visited_at->toISOString(),
+
+                    // ✅ Frontend compatibility flags
+                    'manually_edited' => $location->geocoding_source === 'manual_entry',
+                    'last_edited' => $location->updated_at?->toISOString(),
+
+                    // Relationships
+                    'city' => $location->city,
+                    'country' => $location->country,
+                    'university' => $location->university,
+                ],
+                'message' => 'Custom location created and added to recent locations'
             ], 201);
         } catch (\Exception $e) {
+            Log::error('Error creating custom location', [
+                'user_id' => $userId ?? null,
+                'error' => $e->getMessage(),
+                'data' => $data ?? null
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to add custom location',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
+
+    /**
+     * Helper method to geocode an address to get coordinates
+     */
+    private function geocodeAddress(string $address, array $additionalData = []): ?array
+    {
+        // Build a more complete address string
+        $addressParts = [$address];
+
+        if (!empty($additionalData['city'])) {
+            $addressParts[] = $additionalData['city'];
+        }
+        if (!empty($additionalData['state'])) {
+            $addressParts[] = $additionalData['state'];
+        }
+        if (!empty($additionalData['country'])) {
+            $addressParts[] = $additionalData['country'];
+        }
+
+        $fullAddress = implode(', ', array_filter($addressParts));
+
+        Log::info('Attempting to geocode address', [
+            'original_address' => $address,
+            'full_address' => $fullAddress,
+            'additional_data' => $additionalData
+        ]);
+
+        try {
+            // ✅ Use your enhanced geocoding service for forward geocoding
+            $geocodingService = new EnhancedGeocodingService();
+            $result = $geocodingService->forwardGeocode($fullAddress);
+
+            if ($result) {
+                Log::info('Forward geocoding successful', [
+                    'address' => $fullAddress,
+                    'coordinates' => [
+                        'lat' => $result['latitude'],
+                        'lng' => $result['longitude']
+                    ],
+                    'source' => $result['source'],
+                    'confidence' => $result['confidence']
+                ]);
+
+                return [
+                    'latitude' => $result['latitude'],
+                    'longitude' => $result['longitude'],
+                    'source' => $result['source'],
+                    'confidence' => $result['confidence'],
+                    'geocoded_address' => $result['address'],
+                    'metadata' => [
+                        'house_number' => $result['house_number'] ?? null,
+                        'road' => $result['road'] ?? null,
+                        'city' => $result['city'] ?? null,
+                        'state' => $result['state'] ?? null,
+                        'country' => $result['country'] ?? null,
+                        'postcode' => $result['postcode'] ?? null,
+                    ]
+                ];
+            }
+
+            Log::warning('Forward geocoding failed - no results', [
+                'address' => $fullAddress
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Forward geocoding error', [
+                'address' => $fullAddress,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        return null;
+    }
+
 
     /**
      * Create a new university
