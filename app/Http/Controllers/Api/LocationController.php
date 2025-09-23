@@ -13,6 +13,7 @@ use App\Models\City;
 use App\Models\Location;
 use App\Models\University;
 use App\Models\UserRecentLocation;
+use App\Services\EnhancedGeocodingService;
 
 class LocationController extends Controller
 {
@@ -248,25 +249,18 @@ class LocationController extends Controller
      */
     public function saveRecentLocation(Request $request): JsonResponse
     {
-        // ✅ Check authentication first
         $userId = Auth::id();
         if (!$userId) {
             return response()->json([
                 'success' => false,
-                'message' => 'User not authenticated',
-                'error' => 'Authentication required to save location'
+                'message' => 'User not authenticated'
             ], 401);
         }
 
         $validator = Validator::make($request->all(), [
-            'location_id' => 'nullable|integer|exists:locations,id',
             'name' => 'required|string|max:255',
-            'address' => 'nullable|string|max:500',
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
-            'city_id' => 'nullable|integer|exists:cities,id',
-            'country_id' => 'nullable|integer|exists:countries,id',
-            'university_id' => 'nullable|integer|exists:universities,id',
             'type' => 'nullable|string|in:current,campus,custom,online,shipping',
         ]);
 
@@ -280,56 +274,69 @@ class LocationController extends Controller
         try {
             $data = $validator->validated();
 
-            // ✅ Enhanced location creation/retrieval
-            if (!isset($data['location_id'])) {
-                // Try to find existing location first
-                $location = Location::where([
-                    ['latitude', '=', $data['latitude']],
-                    ['longitude', '=', $data['longitude']],
-                    ['type', '=', $data['type'] ?? 'custom']
-                ])->first();
+            // ✅ ENHANCED: Perform geocoding on backend
+            $osmGeocodingService = new EnhancedGeocodingService();
+            $geocodedData = $osmGeocodingService->reverseGeocode(
+                $data['latitude'],
+                $data['longitude']
+            );
 
-                // If not found, create new location
-                if (!$location) {
-                    $location = Location::create([
-                        'name' => $data['name'],
-                        'address' => $data['address'] ?? null,
-                        'latitude' => $data['latitude'],
-                        'longitude' => $data['longitude'],
-                        'city_id' => $data['city_id'] ?? null,
-                        'country_id' => $data['country_id'] ?? null,
-                        'university_id' => $data['university_id'] ?? null,
-                        'type' => $data['type'] ?? 'custom',
-                        'is_active' => true,
-                        'created_by' => $userId
-                    ]);
-                }
+            // Enhanced address with OSM data
+            $finalAddress = $geocodedData['address'] ??
+                "Lat: {$data['latitude']}, Lng: {$data['longitude']}";
 
-                $data['location_id'] = $location->id;
-            }
-
-            // ✅ Ensure user_id is set explicitly
-            $recentLocation = UserRecentLocation::updateOrCreate([
-                'user_id' => $userId,
-                'location_id' => $data['location_id']
+            $location = Location::firstOrCreate([
+                'latitude' => $data['latitude'],
+                'longitude' => $data['longitude'],
             ], [
-                'user_id' => $userId, // ✅ Explicitly set user_id
-                'location_id' => $data['location_id'],
+                'name' => $data['name'],
+                'address' => $finalAddress,
+                'type' => $data['type'] ?? 'current',
+                'is_active' => true,
+                'created_by' => $userId,
+
+                // ✅ Store enhanced metadata from best service
+                'geocoding_source' => $geocodedData['source'] ?? 'none',
+                'geocoding_confidence' => $geocodedData['confidence'] ?? 0.0,
+                'osm_id' => $geocodedData['osm_id'] ?? null,
+                'osm_type' => $geocodedData['osm_type'] ?? null,
+                'place_type' => $geocodedData['place_type'] ?? null,
+                'geocoded_at' => now(),
+            ]);
+
+            // Save to user recent locations
+            UserRecentLocation::updateOrCreate([
+                'user_id' => $userId,
+                'location_id' => $location->id
+            ], [
                 'visited_at' => now()
             ]);
 
+            // ✅ RETURN ENHANCED DATA: Include geocoded information
             return response()->json([
                 'success' => true,
-                'message' => 'Location saved to recent successfully',
+                'message' => 'Location saved successfully',
                 'data' => [
-                    'id' => $recentLocation->id,
-                    'location_id' => $recentLocation->location_id,
-                    'visited_at' => $recentLocation->visited_at,
-                    'location' => $location ?? Location::find($data['location_id'])
+                    'id' => $location->id,
+                    'name' => $location->name,
+                    'address' => $location->address,
+                    'latitude' => $location->latitude,
+                    'longitude' => $location->longitude,
+                    'type' => $location->type,
+                    'geocoding_source' => $geocodedData['source'] ?? 'none',
+                    'confidence' => $geocodedData['confidence'] ?? 0.0,
+                    'metadata' => [
+                        'house_number' => $geocodedData['house_number'] ?? null,
+                        'road' => $geocodedData['road'] ?? null,
+                        'city' => $geocodedData['city'] ?? null,
+                        'state' => $geocodedData['state'] ?? null,
+                        'country' => $geocodedData['country'] ?? null,
+                        'postcode' => $geocodedData['postcode'] ?? null,
+                    ],
                 ]
             ], 201);
         } catch (\Exception $e) {
-            \Log::error('Error saving recent location', [
+            Log::error('Error saving recent location', [
                 'user_id' => $userId,
                 'error' => $e->getMessage(),
                 'data' => $data ?? null
@@ -337,11 +344,47 @@ class LocationController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to save recent location',
+                'message' => 'Failed to save location',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
+
+    public function getGeocodingStats(): JsonResponse
+    {
+        try {
+            $geocodingService = new EnhancedGeocodingService();
+            $stats = $geocodingService->getUsageStats();
+
+            // Add limits for reference
+            $limits = [
+                'nominatim' => ['daily' => 86400, 'note' => '1 request per second'],
+                'locationiq' => ['daily' => 5000, 'note' => 'Free tier'],
+                'opencage' => ['daily' => 2500, 'note' => 'Free tier'],
+                'positionstack' => ['daily' => 833, 'note' => '25,000/month'],
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'usage' => $stats,
+                    'limits' => $limits,
+                    'percentage_used' => [
+                        'locationiq' => round(($stats['locationiq'] / 5000) * 100, 1),
+                        'opencage' => round(($stats['opencage'] / 2500) * 100, 1),
+                        'positionstack' => round(($stats['positionstack'] / 833) * 100, 1),
+                    ]
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get geocoding stats',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
 
     /**
      * Get all locations with relationships

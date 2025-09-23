@@ -15,7 +15,15 @@ return new class extends Migration
             $table->id();
             $table->enum('type', ['current', 'campus', 'custom', 'online', 'shipping']);
 
-            $table->string('name')->nullable(); 
+            $table->string('geocoding_source')->nullable();
+            $table->decimal('geocoding_confidence', 3, 2)->nullable();
+            $table->timestamp('geocoded_at')->nullable();
+            $table->string('osm_id')->nullable();
+            $table->string('osm_type')->nullable();
+            $table->string('place_type')->nullable();
+            $table->decimal('osm_importance', 8, 6)->nullable();
+
+            $table->string('name')->nullable();
             $table->string('address')->nullable();
             $table->foreignId('city_id')->nullable()->constrained()->cascadeOnDelete();
             $table->foreignId('country_id')->nullable()->constrained()->cascadeOnDelete();
@@ -34,6 +42,10 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['latitude', 'longitude']);
+            $table->index(['geocoding_source', 'geocoding_confidence']);
+            $table->index(['geocoding_source', 'geocoded_at']);
+            $table->index(['osm_type', 'osm_id']);
+            $table->index('place_type');
             $table->index(['type', 'is_active']);
             $table->index('is_popular');
             $table->index('is_safe_meetup');

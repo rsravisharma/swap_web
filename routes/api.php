@@ -109,6 +109,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('user/recent', [LocationController::class, 'getRecentLocations']);
         Route::post('user/recent', [LocationController::class, 'saveRecentLocation']);
         Route::post('custom', [LocationController::class, 'addCustomLocation']);
+        Route::get('geocoding-stats', [LocationController::class, 'getGeocodingStats']);
     });
 
     // University routes

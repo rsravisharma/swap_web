@@ -45,4 +45,16 @@ return [
         ],
     ],
 
+    'locationiq' => [
+        'api_key' => env('LOCATIONIQ_API_KEY'),
+    ],
+
+    'opencage' => [
+        'api_key' => env('OPENCAGE_API_KEY'),
+    ],
+
+    'positionstack' => [
+        'access_key' => env('POSITIONSTACK_ACCESS_KEY'),
+    ],
+
 ];
