@@ -221,7 +221,31 @@ class LocationController extends Controller
         try {
             $userId = Auth::id();
 
+            // ✅ Enhanced query with better eager loading
             $recentLocations = UserRecentLocation::with([
+                'location' => function ($query) {
+                    $query->select([
+                        'id',
+                        'name',
+                        'address',
+                        'latitude',
+                        'longitude',
+                        'type',
+                        'description',
+                        'is_safe_meetup',
+                        'metadata',
+                        'manually_edited',
+                        'last_edited_at',
+                        'geocoding_source',
+                        'geocoding_confidence',
+                        'geocoded_at',
+                        'city_id',
+                        'country_id',
+                        'university_id',
+                        'created_at',
+                        'updated_at'
+                    ]);
+                },
                 'location.city:id,name,state',
                 'location.country:id,name,code',
                 'location.university:id,name'
@@ -231,18 +255,107 @@ class LocationController extends Controller
                 ->limit(10)
                 ->get();
 
+            // ✅ Transform data with enhanced metadata handling
+            $transformedLocations = $recentLocations->map(function ($recentLocation) {
+                $location = $recentLocation->location;
+
+                if (!$location) {
+                    Log::warning('Recent location found but location deleted', [
+                        'recent_location_id' => $recentLocation->id,
+                        'location_id' => $recentLocation->location_id
+                    ]);
+                    return null;
+                }
+
+                // ✅ Extract metadata for Flutter compatibility
+                $metadata = is_array($location->metadata) ? $location->metadata : [];
+
+                return [
+                    // Basic location info
+                    'id' => $location->id,
+                    'name' => $location->name,
+                    'title' => $location->name ?? 'Unknown Location',
+                    'address' => $location->address,
+                    'latitude' => $location->latitude,
+                    'longitude' => $location->longitude,
+                    'type' => $location->type,
+                    'description' => $location->description,
+                    'is_safe_meetup' => (bool)$location->is_safe_meetup,
+
+                    // ✅ Metadata handling
+                    'metadata' => $metadata,
+
+                    // ✅ Manual edit tracking
+                    'manually_edited' => (bool)($location->manually_edited ?? ($location->geocoding_source === 'manual_edit')),
+                    'last_edited' => $location->last_edited_at?->toISOString() ?? $location->updated_at?->toISOString(),
+
+                    // ✅ Geocoding information
+                    'geocoding_source' => $location->geocoding_source,
+                    'confidence' => $location->geocoding_confidence,
+                    'geocoded_at' => $location->geocoded_at?->toISOString(),
+
+                    // ✅ Recent location tracking
+                    'visited_at' => $recentLocation->visited_at->toISOString(),
+                    'recent_location_id' => $recentLocation->id,
+
+                    // ✅ Timestamps
+                    'created_at' => $location->created_at?->toISOString(),
+                    'updated_at' => $location->updated_at?->toISOString(),
+
+                    // ✅ Flattened relationships
+                    'city' => $location->city ? [
+                        'id' => $location->city->id,
+                        'name' => $location->city->name,
+                        'state' => $location->city->state,
+                    ] : null,
+
+                    'country' => $location->country ? [
+                        'id' => $location->country->id,
+                        'name' => $location->country->name,
+                        'code' => $location->country->code,
+                    ] : null,
+
+                    'university' => $location->university ? [
+                        'id' => $location->university->id,
+                        'name' => $location->university->name,
+                    ] : null,
+                ];
+            })->filter()->values(); // Remove nulls and reset keys
+
+            Log::info('Recent locations fetched successfully', [
+                'user_id' => $userId,
+                'total_count' => $transformedLocations->count(),
+                'location_types' => $transformedLocations->groupBy('type')->map->count(),
+                'manually_edited_count' => $transformedLocations->where('manually_edited', true)->count()
+            ]);
+
             return response()->json([
                 'success' => true,
-                'data' => $recentLocations
+                'data' => $transformedLocations,
+                'count' => $transformedLocations->count(),
+                'message' => 'Recent locations retrieved successfully',
+                'meta' => [
+                    'total_locations' => $transformedLocations->count(),
+                    'manually_edited' => $transformedLocations->where('manually_edited', true)->count(),
+                    'location_types' => $transformedLocations->groupBy('type')->map->count(),
+                ]
             ]);
         } catch (\Exception $e) {
+            Log::error('Error fetching recent locations', [
+                'user_id' => $userId ?? null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch recent locations',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
+
+
 
     /**
      * Save location to user's recent locations
