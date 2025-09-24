@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Item;
 use App\Models\ItemImage;
 use App\Models\Favorite;
+use App\Models\Location;
+use App\Models\Category;
 use App\Services\HistoryService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +15,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class ItemController extends Controller
 {
@@ -229,12 +232,15 @@ class ItemController extends Controller
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|max:255',
             'description' => 'required|string|max:2000',
-            'category' => 'required|string|max:100',
+            'category' => 'required|string|max:100', // Category name from frontend
             'price' => 'required|numeric|min:0',
             'condition' => 'required|string|in:new,like_new,good,fair,poor',
             'images' => 'nullable|array|max:10',
-            'images.*' => 'image|mimes:jpeg,png,jpg|max:5120', // 5MB max per image
+            'images.*' => 'image|mimes:jpeg,png,jpg|max:5120',
             'location' => 'nullable|string|max:255',
+            'location_data' => 'nullable|string', // JSON location data
+            'latitude' => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
             'contact_method' => 'nullable|string|in:chat,phone,email',
             'tags' => 'nullable|array',
             'tags.*' => 'string|max:50',
@@ -248,19 +254,86 @@ class ItemController extends Controller
         }
 
         try {
-            $data = $request->only([
-                'title',
-                'description',
-                'category',
-                'price',
-                'condition',
-                'location',
-                'contact_method'
-            ]);
-            $data['user_id'] = Auth::id();
-            $data['status'] = 'active';
-            $data['tags'] = $request->input('tags', []);
+            // Base item data
+            $data = [
+                'title' => $request->input('title'),
+                'description' => $request->input('description'),
+                'price' => $request->input('price'),
+                'condition' => $request->input('condition'),
+                'contact_method' => $request->input('contact_method', 'chat'),
+                'user_id' => Auth::id(),
+                'status' => 'active',
+                'tags' => $request->input('tags', []),
+            ];
 
+            // Handle category - hybrid approach
+            if ($request->has('category')) {
+                $categoryName = $request->input('category');
+                $data['category_name'] = $categoryName;
+
+                // Try to find or create category for relationships
+                $category = Category::firstOrCreate(
+                    ['name' => $categoryName],
+                    [
+                        'slug' => Str::slug($categoryName),
+                        'description' => "Auto-created category for {$categoryName}",
+                        'is_active' => true,
+                    ]
+                );
+
+                $data['category_id'] = $category->id;
+                \Log::info("Category processed", [
+                    'name' => $categoryName,
+                    'id' => $category->id,
+                    'was_created' => $category->wasRecentlyCreated
+                ]);
+            }
+
+            // Handle location - hybrid approach
+            if ($request->has('location') && !empty($request->input('location'))) {
+                $locationString = $request->input('location');
+                $data['location'] = $locationString;
+
+                // Try to create structured location if we have coordinates
+                if ($request->has('latitude') && $request->has('longitude')) {
+                    $locationData = [
+                        'name' => $locationString,
+                        'full_address' => $locationString,
+                        'latitude' => $request->input('latitude'),
+                        'longitude' => $request->input('longitude'),
+                    ];
+
+                    // Parse additional location data if available
+                    if ($request->has('location_data')) {
+                        $additionalData = json_decode($request->input('location_data'), true);
+                        if ($additionalData && is_array($additionalData)) {
+                            $locationData = array_merge($locationData, [
+                                'city' => $additionalData['city'] ?? null,
+                                'state' => $additionalData['state'] ?? null,
+                                'country' => $additionalData['country'] ?? null,
+                                'postal_code' => $additionalData['postal_code'] ?? null,
+                                'type' => 'user_selected',
+                            ]);
+                        }
+                    }
+
+                    // Find existing location by coordinates or create new one
+                    $location = Location::where('latitude', $locationData['latitude'])
+                        ->where('longitude', $locationData['longitude'])
+                        ->first();
+
+                    if (!$location) {
+                        $location = Location::create($locationData);
+                        \Log::info("New location created", ['location_id' => $location->id]);
+                    } else {
+                        \Log::info("Existing location found", ['location_id' => $location->id]);
+                    }
+
+                    $data['location_id'] = $location->id;
+                }
+            }
+
+            // Create the item
             $item = Item::create($data);
 
             // Handle image uploads
@@ -271,19 +344,29 @@ class ItemController extends Controller
             // Add to history
             HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'create');
 
+            // Load relationships for response
+            $item->load(['user', 'category', 'location', 'images']);
+
             return response()->json([
                 'success' => true,
-                'data' => $item->load(['user', 'category', 'images']),
+                'data' => $item,
                 'message' => 'Item created successfully'
             ], 201);
         } catch (\Exception $e) {
+            \Log::error('Item creation failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->except(['images'])
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create item',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
+
 
     /**
      * Update item

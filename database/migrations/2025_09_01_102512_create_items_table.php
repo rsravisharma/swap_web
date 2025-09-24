@@ -16,6 +16,7 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('title');
             $table->text('description');
+            $table->string('category_name')->nullable();
             $table->foreignId('category_id')->nullable()->constrained()->onDelete('set null');
             $table->foreignId('sub_category_id')->nullable()->constrained()->onDelete('set null');
             $table->foreignId('child_sub_category_id')->nullable()->constrained()->onDelete('set null');
@@ -23,6 +24,7 @@ return new class extends Migration
             $table->enum('condition', ['new', 'like_new', 'good', 'fair', 'poor']);
             $table->enum('status', ['active', 'sold', 'archived'])->default('active');
             $table->foreignId('location_id')->nullable()->constrained('locations')->cascadeOnDelete();
+            $table->string('location')->nullable();
             $table->enum('contact_method', ['chat', 'phone', 'email'])->default('chat');
             $table->json('tags')->nullable();
             $table->boolean('is_sold')->default(false);

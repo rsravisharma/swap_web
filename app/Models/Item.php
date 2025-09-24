@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 class Item extends Model
 {
@@ -14,13 +15,15 @@ class Item extends Model
         'user_id',
         'title',
         'description',
+        'category_name',        // Added for hybrid approach
         'category_id',
-        'subcategory_id',
-        'child_subcategory_id',
+        'sub_category_id',      // Fixed column name
+        'child_sub_category_id', // Fixed column name
         'price',
         'condition',
         'status',
-        'location',
+        'location_id',
+        'location',             // Added for hybrid approach
         'contact_method',
         'tags',
         'is_sold',
@@ -43,8 +46,19 @@ class Item extends Model
         'archived_at' => 'datetime',
     ];
 
+    // Auto-populate cached fields when saving
+    protected static function booted()
+    {
+        static::saving(function ($item) {
+            // Cache category name for fast display
+            if ($item->category_id && $item->isDirty('category_id')) {
+                $item->category_name = $item->category->name ?? null;
+            }
+        });
+    }
+
     // Relationships
-    public function user()
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
@@ -54,34 +68,19 @@ class Item extends Model
         return $this->belongsTo(Category::class);
     }
 
-    public function subcategory(): BelongsTo
+    public function subCategory(): BelongsTo
     {
-        return $this->belongsTo(Subcategory::class);
+        return $this->belongsTo(SubCategory::class, 'sub_category_id');
     }
 
-    public function childSubcategory(): BelongsTo
+    public function childSubCategory(): BelongsTo
     {
-        return $this->belongsTo(ChildSubcategory::class);
+        return $this->belongsTo(ChildSubCategory::class, 'child_sub_category_id');
     }
 
-      // Get the most specific category path
-    public function getCategoryPathAttribute()
+    public function location(): BelongsTo
     {
-        $path = [];
-        
-        if ($this->category) {
-            $path[] = $this->category->name;
-        }
-        
-        if ($this->subcategory) {
-            $path[] = $this->subcategory->name;
-        }
-        
-        if ($this->childSubcategory) {
-            $path[] = $this->childSubcategory->name;
-        }
-        
-        return implode(' > ', $path);
+        return $this->belongsTo(Location::class);
     }
 
     public function images()
@@ -92,6 +91,47 @@ class Item extends Model
     public function primaryImage()
     {
         return $this->hasOne(ItemImage::class)->where('is_primary', true);
+    }
+
+    // Accessors
+    public function getCategoryPathAttribute()
+    {
+        $path = [];
+        
+        if ($this->category_name) {
+            $path[] = $this->category_name;
+        } elseif ($this->category) {
+            $path[] = $this->category->name;
+        }
+        
+        if ($this->subCategory) {
+            $path[] = $this->subCategory->name;
+        }
+        
+        if ($this->childSubCategory) {
+            $path[] = $this->childSubCategory->name;
+        }
+        
+        return implode(' > ', $path);
+    }
+
+    public function getLocationDisplayAttribute()
+    {
+        // Priority: location string first, then relationship
+        if ($this->location) {
+            return $this->location;
+        }
+        
+        if ($this->location_id && $this->location) {
+            return $this->location->display_name ?? $this->location->name ?? $this->location->full_address;
+        }
+        
+        return 'No location specified';
+    }
+
+    public function getCategoryDisplayAttribute()
+    {
+        return $this->category_name ?? $this->category?->name ?? 'Uncategorized';
     }
 
     // Scopes
@@ -114,6 +154,23 @@ class Item extends Model
     {
         return $query->where('is_promoted', true)
             ->where('promoted_until', '>', now());
+    }
+
+    public function scopeByCategory($query, $categoryName)
+    {
+        return $query->where('category_name', $categoryName)
+                    ->orWhereHas('category', function($q) use ($categoryName) {
+                        $q->where('name', $categoryName);
+                    });
+    }
+
+    public function scopeByLocation($query, $location)
+    {
+        return $query->where('location', 'like', "%{$location}%")
+                    ->orWhereHas('location', function($q) use ($location) {
+                        $q->where('name', 'like', "%{$location}%")
+                          ->orWhere('full_address', 'like', "%{$location}%");
+                    });
     }
 
     // Helper methods
