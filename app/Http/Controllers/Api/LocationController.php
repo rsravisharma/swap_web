@@ -441,11 +441,47 @@ class LocationController extends Controller
                 'geocoding_details' => $geocodedData['details'] ?? [],
             ];
 
-            // ✅ Enhanced address building with fallbacks
-            $finalAddress = $data['address'] ??
-                $geocodedData['address'] ??
-                $this->buildAddressFromComponents($metadata) ??
-                "Lat: {$data['latitude']}, Lng: {$data['longitude']}";
+            // ✅ FIXED: Enhanced address building - ignore temporary addresses
+            $finalAddress = null;
+
+            // Don't use temporary addresses from frontend
+            if (
+                !empty($data['address']) &&
+                !str_contains(strtolower($data['address']), 'finding') &&
+                !str_contains(strtolower($data['address']), 'loading') &&
+                !str_contains(strtolower($data['address']), 'getting')
+            ) {
+                $finalAddress = $data['address'];
+            }
+
+            // Try geocoded address next
+            if (!$finalAddress && !empty($geocodedData['address'])) {
+                $finalAddress = $geocodedData['address'];
+            }
+
+            // Build from components if we have them
+            if (!$finalAddress) {
+                $finalAddress = $this->buildAddressFromComponents($metadata);
+            }
+
+            // Last resort - coordinates
+            if (!$finalAddress) {
+                $finalAddress = "Lat: {$data['latitude']}, Lng: {$data['longitude']}";
+            }
+
+            \Log::info('Address building debug', [
+                'frontend_address' => $data['address'] ?? null,
+                'geocoded_address' => $geocodedData['address'] ?? null,
+                'metadata_components' => [
+                    'house_number' => $metadata['house_number'],
+                    'road' => $metadata['road'],
+                    'city' => $metadata['city'],
+                    'state' => $metadata['state'],
+                    'country' => $metadata['country'],
+                    'postcode' => $metadata['postcode'],
+                ],
+                'final_address' => $finalAddress
+            ]);
 
             // ✅ Try to resolve relationships before creating location
             $cityId = null;
@@ -630,17 +666,46 @@ class LocationController extends Controller
      */
     private function buildAddressFromComponents(array $metadata): ?string
     {
-        $parts = array_filter([
-            $metadata['house_number'] && $metadata['road']
-                ? $metadata['house_number'] . ' ' . $metadata['road']
-                : $metadata['road'],
-            $metadata['city'],
-            $metadata['postcode'],
-            $metadata['state'],
-            $metadata['country']
+        $addressParts = [];
+
+        // Build street address part
+        $streetParts = [];
+        if (!empty($metadata['house_number'])) {
+            $streetParts[] = $metadata['house_number'];
+        }
+        if (!empty($metadata['road'])) {
+            $streetParts[] = $metadata['road'];
+        }
+
+        if (!empty($streetParts)) {
+            $addressParts[] = implode(' ', $streetParts);
+        }
+
+        // Add city and area parts
+        if (!empty($metadata['city'])) {
+            $addressParts[] = $metadata['city'];
+        }
+
+        if (!empty($metadata['postcode'])) {
+            $addressParts[] = $metadata['postcode'];
+        }
+
+        if (!empty($metadata['state'])) {
+            $addressParts[] = $metadata['state'];
+        }
+
+        if (!empty($metadata['country'])) {
+            $addressParts[] = $metadata['country'];
+        }
+
+        $result = !empty($addressParts) ? implode(', ', $addressParts) : null;
+
+        \Log::info('Built address from components', [
+            'components' => $metadata,
+            'result' => $result
         ]);
 
-        return !empty($parts) ? implode(', ', $parts) : null;
+        return $result;
     }
 
     /**
@@ -669,7 +734,7 @@ class LocationController extends Controller
     /**
      * Helper method to find or create city
      */
-     private function findOrCreateCity(string $cityName, string $stateName, int $countryId): ?int
+    private function findOrCreateCity(string $cityName, string $stateName, int $countryId): ?int
     {
         try {
             $city = City::firstOrCreate([
