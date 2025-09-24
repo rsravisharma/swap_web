@@ -805,7 +805,7 @@ class LocationController extends Controller
 
             // ✅ Build comprehensive metadata
             $newMetadata = array_merge($currentMetadata, [
-                'house_number' => $data['house_number'] ?? $currentMetadata['house_number'] ?? null,
+                // 'house_number' => $data['house_number'] ?? $currentMetadata['house_number'] ?? null,
                 'road' => $data['road'] ?? $currentMetadata['road'] ?? null,
                 'city' => $data['city'] ?? $currentMetadata['city'] ?? null,
                 'state' => $data['state'] ?? $currentMetadata['state'] ?? null,
