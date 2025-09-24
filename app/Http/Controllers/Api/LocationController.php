@@ -376,6 +376,18 @@ class LocationController extends Controller
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
             'type' => 'nullable|string|in:current,campus,custom,online,shipping',
+            'address' => 'nullable|string|max:500',
+            'accuracy' => 'nullable|numeric|min:0',
+            'timestamp' => 'nullable|string',
+
+            // ✅ ADD: Optional fields from frontend
+            'city' => 'nullable|string|max:100',
+            'state' => 'nullable|string|max:100',
+            'country' => 'nullable|string|max:100',
+            'postcode' => 'nullable|string|max:20',
+            'house_number' => 'nullable|string|max:50',
+            'road' => 'nullable|string|max:200',
+            'description' => 'nullable|string|max:1000',
         ]);
 
         if ($validator->fails()) {
@@ -395,30 +407,156 @@ class LocationController extends Controller
                 $data['longitude']
             );
 
-            // Enhanced address with OSM data
-            $finalAddress = $geocodedData['address'] ??
+            // ✅ Build comprehensive metadata from multiple sources
+            $metadata = [
+                // Frontend provided data (highest priority)
+                'house_number' => $data['house_number'] ?? $geocodedData['house_number'] ?? null,
+                'road' => $data['road'] ?? $geocodedData['road'] ?? null,
+                'city' => $data['city'] ?? $geocodedData['city'] ?? null,
+                'state' => $data['state'] ?? $geocodedData['state'] ?? null,
+                'country' => $data['country'] ?? $geocodedData['country'] ?? null,
+                'postcode' => $data['postcode'] ?? $geocodedData['postcode'] ?? null,
+
+                // Technical metadata
+                'original_geocoding_source' => $geocodedData['source'] ?? 'none',
+                'original_confidence' => $geocodedData['confidence'] ?? 0.0,
+                'user_provided' => !empty($data['city']) || !empty($data['address']),
+                'frontend_accuracy' => $data['accuracy'] ?? null,
+                'frontend_timestamp' => $data['timestamp'] ?? null,
+
+                // Creation tracking
+                'created_method' => 'save_recent_location',
+                'created_at' => now()->toISOString(),
+                'created_by' => $userId,
+
+                // OSM specific data
+                'osm_data' => [
+                    'osm_id' => $geocodedData['osm_id'] ?? null,
+                    'osm_type' => $geocodedData['osm_type'] ?? null,
+                    'place_type' => $geocodedData['place_type'] ?? null,
+                    'osm_importance' => $geocodedData['osm_importance'] ?? null,
+                ],
+
+                // Additional geocoding metadata
+                'geocoding_details' => $geocodedData['details'] ?? [],
+            ];
+
+            // ✅ Enhanced address building with fallbacks
+            $finalAddress = $data['address'] ??
+                $geocodedData['address'] ??
+                $this->buildAddressFromComponents($metadata) ??
                 "Lat: {$data['latitude']}, Lng: {$data['longitude']}";
 
+            // ✅ Try to resolve relationships before creating location
+            $cityId = null;
+            $countryId = null;
+
+            if (!empty($metadata['country'])) {
+                $countryId = $this->findOrCreateCountry($metadata['country']);
+                if ($countryId) {
+                    $metadata['resolved_country_id'] = $countryId;
+                }
+            }
+
+            if (!empty($metadata['city']) && !empty($metadata['state']) && $countryId) {
+                $cityId = $this->findOrCreateCity($metadata['city'], $metadata['state'], $countryId);
+                if ($cityId) {
+                    $metadata['resolved_city_id'] = $cityId;
+                }
+            }
+
+            // ✅ Create or update location with all fields
             $location = Location::firstOrCreate([
-                'latitude' => $data['latitude'],
-                'longitude' => $data['longitude'],
+                'latitude' => round($data['latitude'], 8),
+                'longitude' => round($data['longitude'], 8),
             ], [
+                // Basic fields
                 'name' => $data['name'],
                 'address' => $finalAddress,
                 'type' => $data['type'] ?? 'current',
+                'description' => $data['description'] ?? null,
                 'is_active' => true,
                 'created_by' => $userId,
 
-                // ✅ Store enhanced metadata from best service
+                // Relationships
+                'city_id' => $cityId,
+                'country_id' => $countryId,
+
+                // Geocoding fields
                 'geocoding_source' => $geocodedData['source'] ?? 'none',
                 'geocoding_confidence' => $geocodedData['confidence'] ?? 0.0,
+                'geocoded_at' => now(),
                 'osm_id' => $geocodedData['osm_id'] ?? null,
                 'osm_type' => $geocodedData['osm_type'] ?? null,
                 'place_type' => $geocodedData['place_type'] ?? null,
-                'geocoded_at' => now(),
+                'osm_importance' => $geocodedData['osm_importance'] ?? null,
+
+                // ✅ Store complete metadata as JSON
+                'metadata' => $metadata,
+
+                // Status fields
+                'manually_edited' => false,
+                'last_edited_at' => now(),
             ]);
 
-            // Save to user recent locations
+            // ✅ If location exists, update it with new data if needed
+            if (!$location->wasRecentlyCreated) {
+                $shouldUpdate = false;
+                $updates = [];
+
+                // Update if we have better geocoding data
+                if (($geocodedData['confidence'] ?? 0) > ($location->geocoding_confidence ?? 0)) {
+                    $updates['geocoding_source'] = $geocodedData['source'];
+                    $updates['geocoding_confidence'] = $geocodedData['confidence'];
+                    $updates['geocoded_at'] = now();
+                    $shouldUpdate = true;
+                }
+
+                // Update if user provided additional data
+                if (!empty($data['address']) && $data['address'] !== $location->address) {
+                    $updates['address'] = $finalAddress;
+                    $shouldUpdate = true;
+                }
+
+                // Merge metadata
+                $existingMetadata = $location->metadata ?? [];
+                $mergedMetadata = array_merge($existingMetadata, [
+                    'access_history' => array_merge(
+                        $existingMetadata['access_history'] ?? [],
+                        [[
+                            'accessed_at' => now()->toISOString(),
+                            'accessed_by' => $userId,
+                            'method' => 'save_recent_location',
+                            'frontend_data' => array_filter([
+                                'accuracy' => $data['accuracy'] ?? null,
+                                'timestamp' => $data['timestamp'] ?? null,
+                            ])
+                        ]]
+                    ),
+
+                    // Update user-provided fields
+                    'house_number' => $data['house_number'] ?? $existingMetadata['house_number'] ?? $metadata['house_number'],
+                    'road' => $data['road'] ?? $existingMetadata['road'] ?? $metadata['road'],
+                    'city' => $data['city'] ?? $existingMetadata['city'] ?? $metadata['city'],
+                    'state' => $data['state'] ?? $existingMetadata['state'] ?? $metadata['state'],
+                    'country' => $data['country'] ?? $existingMetadata['country'] ?? $metadata['country'],
+                    'postcode' => $data['postcode'] ?? $existingMetadata['postcode'] ?? $metadata['postcode'],
+
+                    // Keep latest geocoding info
+                    'latest_geocoding_source' => $geocodedData['source'] ?? $existingMetadata['latest_geocoding_source'],
+                    'latest_confidence' => $geocodedData['confidence'] ?? $existingMetadata['latest_confidence'],
+                    'last_accessed' => now()->toISOString(),
+                ]);
+
+                $updates['metadata'] = $mergedMetadata;
+                $updates['last_edited_at'] = now();
+
+                if ($shouldUpdate || $mergedMetadata !== $existingMetadata) {
+                    $location->update($updates);
+                }
+            }
+
+            // ✅ Save to user recent locations
             UserRecentLocation::updateOrCreate([
                 'user_id' => $userId,
                 'location_id' => $location->id
@@ -426,33 +564,56 @@ class LocationController extends Controller
                 'visited_at' => now()
             ]);
 
-            // ✅ RETURN ENHANCED DATA: Include geocoded information
+            // ✅ Load relationships for complete response
+            $location->load([
+                'city:id,name,state',
+                'country:id,name,code',
+                'university:id,name'
+            ]);
+
+            // ✅ RETURN ENHANCED DATA with all metadata
             return response()->json([
                 'success' => true,
                 'message' => 'Location saved successfully',
                 'data' => [
                     'id' => $location->id,
                     'name' => $location->name,
+                    'title' => $location->name, // For frontend compatibility
                     'address' => $location->address,
-                    'latitude' => $location->latitude,
-                    'longitude' => $location->longitude,
+                    'latitude' => (float) $location->latitude,
+                    'longitude' => (float) $location->longitude,
                     'type' => $location->type,
-                    'geocoding_source' => $geocodedData['source'] ?? 'none',
-                    'confidence' => $geocodedData['confidence'] ?? 0.0,
-                    'metadata' => [
-                        'house_number' => $geocodedData['house_number'] ?? null,
-                        'road' => $geocodedData['road'] ?? null,
-                        'city' => $geocodedData['city'] ?? null,
-                        'state' => $geocodedData['state'] ?? null,
-                        'country' => $geocodedData['country'] ?? null,
-                        'postcode' => $geocodedData['postcode'] ?? null,
-                    ],
+                    'description' => $location->description,
+
+                    // ✅ Complete metadata (this fixes your frontend casting issue)
+                    'metadata' => $location->metadata,
+
+                    // ✅ Geocoding information
+                    'geocoding_source' => $location->geocoding_source,
+                    'confidence' => (float) ($location->geocoding_confidence ?? 0),
+                    'geocoded_at' => $location->geocoded_at?->toISOString(),
+
+                    // ✅ Status fields
+                    'manually_edited' => $location->manually_edited,
+                    'last_edited' => $location->last_edited_at?->toISOString(),
+                    'is_safe_meetup' => $location->is_safe_meetup,
+
+                    // ✅ Relationships
+                    'city' => $location->city?->name,
+                    'country' => $location->country?->name,
+                    'university' => $location->university?->name,
+
+                    // ✅ Additional response data
+                    'was_created' => $location->wasRecentlyCreated,
+                    'added_to_recent' => true,
+                    'recent_visited_at' => now()->toISOString(),
                 ]
-            ], 201);
+            ], $location->wasRecentlyCreated ? 201 : 200);
         } catch (\Exception $e) {
             Log::error('Error saving recent location', [
                 'user_id' => $userId,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'data' => $data ?? null
             ]);
 
@@ -461,6 +622,73 @@ class LocationController extends Controller
                 'message' => 'Failed to save location',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
+        }
+    }
+
+    /**
+     * Helper method to build address from components
+     */
+    private function buildAddressFromComponents(array $metadata): ?string
+    {
+        $parts = array_filter([
+            $metadata['house_number'] && $metadata['road']
+                ? $metadata['house_number'] . ' ' . $metadata['road']
+                : $metadata['road'],
+            $metadata['city'],
+            $metadata['postcode'],
+            $metadata['state'],
+            $metadata['country']
+        ]);
+
+        return !empty($parts) ? implode(', ', $parts) : null;
+    }
+
+    /**
+     * Helper method to find or create country
+     */
+    private function findOrCreateCountry(string $countryName): ?int
+    {
+        try {
+            $country = Country::firstOrCreate([
+                'name' => $countryName,
+            ], [
+                'code' => strtoupper(substr($countryName, 0, 2)), // Simple code generation
+                'is_active' => true,
+            ]);
+
+            return $country->id;
+        } catch (\Exception $e) {
+            Log::warning('Could not create country', [
+                'country' => $countryName,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Helper method to find or create city
+     */
+     private function findOrCreateCity(string $cityName, string $stateName, int $countryId): ?int
+    {
+        try {
+            $city = City::firstOrCreate([
+                'name' => $cityName,
+                'state' => $stateName,
+                'country_id' => $countryId,
+            ], [
+                'is_active' => true,
+            ]);
+
+            return $city->id;
+        } catch (\Exception $e) {
+            Log::warning('Could not create city', [
+                'city' => $cityName,
+                'state' => $stateName,
+                'country_id' => $countryId,
+                'error' => $e->getMessage()
+            ]);
+            return null;
         }
     }
 
@@ -637,53 +865,6 @@ class LocationController extends Controller
                 'message' => 'Failed to update location',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
-        }
-    }
-
-
-    private function findOrCreateCity(string $cityName, string $stateName, int $countryId): ?int
-    {
-        try {
-            $city = City::firstOrCreate([
-                'name' => $cityName,
-                'state' => $stateName,
-                'country_id' => $countryId,
-            ], [
-                'is_active' => true,
-            ]);
-
-            return $city->id;
-        } catch (\Exception $e) {
-            Log::warning('Could not create city', [
-                'city' => $cityName,
-                'state' => $stateName,
-                'country_id' => $countryId,
-                'error' => $e->getMessage()
-            ]);
-            return null;
-        }
-    }
-
-    /**
-     * Helper method to find or create country
-     */
-    private function findOrCreateCountry(string $countryName): ?int
-    {
-        try {
-            $country = Country::firstOrCreate([
-                'name' => $countryName,
-            ], [
-                'code' => strtoupper(substr($countryName, 0, 2)), // Simple code generation
-                'is_active' => true,
-            ]);
-
-            return $country->id;
-        } catch (\Exception $e) {
-            Log::warning('Could not create country', [
-                'country' => $countryName,
-                'error' => $e->getMessage()
-            ]);
-            return null;
         }
     }
 
