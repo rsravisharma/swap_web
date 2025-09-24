@@ -387,24 +387,19 @@ class ItemController extends Controller
         Log::info('Update request all data: ', $request->all());
         Log::info('Request files: ', array_keys($request->allFiles()));
 
-        // Check if request has tags
-        $hasTags = $request->has('tags') && is_array($request->input('tags'));
-        Log::info('Has tags: ' . ($hasTags ? 'Yes' : 'No'));
-        if ($hasTags) {
-            Log::info('Tags in request: ', $request->input('tags'));
-        }
-
         $validator = Validator::make($request->all(), [
             'title' => 'sometimes|required|string|max:255',
             'description' => 'sometimes|required|string|max:2000',
-            'category' => 'sometimes|required|string|max:100',
+            'category' => 'sometimes|required|string|max:100', // ✅ FIXED: Accept category as string
             'price' => 'sometimes|required|numeric|min:0',
             'condition' => 'sometimes|required|string|in:new,like_new,good,fair,poor',
             'location' => 'nullable|string|max:255',
+            'location_data' => 'nullable|string', // ✅ ADD: For location data
+            'latitude' => 'nullable|numeric', // ✅ ADD: For coordinates
+            'longitude' => 'nullable|numeric', // ✅ ADD: For coordinates
             'contact_method' => 'nullable|string|in:chat,phone,email',
             'tags' => 'nullable|array',
             'tags.*' => 'string|max:50',
-            'tags_empty' => 'nullable|string',
             'existing_images' => 'nullable|array',
             'existing_images.*' => 'string',
             'new_images' => 'nullable|array|max:10',
@@ -420,16 +415,81 @@ class ItemController extends Controller
         }
 
         try {
-            // Update basic item data
+            // ✅ FIXED: Update basic item data with proper category handling
             $updateData = $request->only([
                 'title',
                 'description',
-                'category',
                 'price',
                 'condition',
-                'location',
                 'contact_method'
             ]);
+
+            // ✅ FIXED: Handle category - same as store method
+            if ($request->has('category')) {
+                $categoryName = $request->input('category');
+                $updateData['category_name'] = $categoryName;
+
+                // Try to find or create category for relationships
+                $category = Category::firstOrCreate(
+                    ['name' => $categoryName],
+                    [
+                        'slug' => Str::slug($categoryName),
+                        'description' => "Auto-created category for {$categoryName}",
+                        'is_active' => true,
+                    ]
+                );
+
+                $updateData['category_id'] = $category->id;
+                \Log::info("Category processed for update", [
+                    'name' => $categoryName,
+                    'id' => $category->id,
+                    'was_created' => $category->wasRecentlyCreated
+                ]);
+            }
+
+            // ✅ FIXED: Handle location - same as store method
+            if ($request->has('location') && !empty($request->input('location'))) {
+                $locationString = $request->input('location');
+                $updateData['location'] = $locationString;
+
+                // Try to create structured location if we have coordinates
+                if ($request->has('latitude') && $request->has('longitude')) {
+                    $locationData = [
+                        'name' => $locationString,
+                        'full_address' => $locationString,
+                        'latitude' => $request->input('latitude'),
+                        'longitude' => $request->input('longitude'),
+                    ];
+
+                    // Parse additional location data if available
+                    if ($request->has('location_data')) {
+                        $additionalData = json_decode($request->input('location_data'), true);
+                        if ($additionalData && is_array($additionalData)) {
+                            $locationData = array_merge($locationData, [
+                                'city' => $additionalData['city'] ?? null,
+                                'state' => $additionalData['state'] ?? null,
+                                'country' => $additionalData['country'] ?? null,
+                                'postal_code' => $additionalData['postal_code'] ?? null,
+                                'type' => 'user_selected',
+                            ]);
+                        }
+                    }
+
+                    // Find existing location by coordinates or create new one
+                    $location = Location::where('latitude', $locationData['latitude'])
+                        ->where('longitude', $locationData['longitude'])
+                        ->first();
+
+                    if (!$location) {
+                        $location = Location::create($locationData);
+                        \Log::info("New location created for update", ['location_id' => $location->id]);
+                    } else {
+                        \Log::info("Existing location found for update", ['location_id' => $location->id]);
+                    }
+
+                    $updateData['location_id'] = $location->id;
+                }
+            }
 
             // Handle tags
             if ($request->has('tags') && is_array($request->input('tags'))) {
@@ -450,7 +510,8 @@ class ItemController extends Controller
             // Add to history
             HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'update');
 
-            $updatedItem = $item->fresh()->load(['user', 'images']);
+            // ✅ FIXED: Load relationships including category and location
+            $updatedItem = $item->fresh()->load(['user', 'category', 'location', 'images']);
             Log::info('Updated item tags: ' . $updatedItem->tags);
 
             return response()->json([
@@ -460,10 +521,11 @@ class ItemController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to update item: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update item',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
