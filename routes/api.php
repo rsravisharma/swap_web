@@ -5,7 +5,10 @@ use Illuminate\Support\Facades\Route;
 use App\Services\EnhancedGeocodingService;
 use App\Http\Controllers\Api\{
     AuthController,
+    HomeController,
     CategoryController,
+    ItemSearchController,
+    CategoryItemController,
     SearchController,
     LocationController,
     ChatController,
@@ -45,19 +48,40 @@ Route::prefix('auth')->group(function () {
     Route::post('ably-token', [AuthController::class, 'generateAblyToken']);
 });
 
+Route::prefix('items')->group(function () {
+    Route::get('/popular', [HomeController::class, 'popular']);
+    Route::get('/recent', [HomeController::class, 'recent']);
+    Route::get('/trending', [HomeController::class, 'trending']);
+    Route::get('/featured', [HomeController::class, 'featured']);
+});
+
+// Search endpoints (put early to avoid conflicts)
+Route::get('/search/items', [ItemSearchController::class, 'search']);
+
 // Category Routes (Public)
 Route::prefix('categories')->group(function () {
+    // Specific endpoints first
     Route::get('hierarchy', [CategoryController::class, 'getCategoryHierarchy']);
     Route::get('flat', [CategoryController::class, 'getFlatCategories']);
     Route::get('names', [CategoryController::class, 'getCategoryNames']);
     Route::get('path', [CategoryController::class, 'getCategoryPath']);
-
-    Route::get('{categoryId}/sub-categories', [CategoryController::class, 'getSubCategories']);
+    Route::get('stats', [HomeController::class, 'categoryStats']);
     Route::delete('cache', [CategoryController::class, 'clearCache']);
+    
+    // Dynamic parameter routes last
+    Route::get('{categoryId}/sub-categories', [CategoryController::class, 'getSubCategories']);
+    Route::get('{categoryId}/items', [CategoryItemController::class, 'categoryItems']);
 });
 
-Route::prefix('sub-categories')->group(function () {
-    Route::get('{subCategoryId}/children', [CategoryController::class, 'getChildSubCategories']);
+// Subcategory Routes
+Route::prefix('subcategories')->group(function () {
+    Route::get('{subcategoryId}/items', [CategoryItemController::class, 'subcategoryItems']);
+    Route::get('{subcategoryId}/children', [CategoryController::class, 'getChildSubCategories']);
+});
+
+// Child Subcategory Routes  
+Route::prefix('child-subcategories')->group(function () {
+    Route::get('{childSubcategoryId}/items', [CategoryItemController::class, 'childSubcategoryItems']);
 });
 
 // Location Routes (Public)

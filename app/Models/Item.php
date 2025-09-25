@@ -97,21 +97,21 @@ class Item extends Model
     public function getCategoryPathAttribute()
     {
         $path = [];
-        
+
         if ($this->category_name) {
             $path[] = $this->category_name;
         } elseif ($this->category) {
             $path[] = $this->category->name;
         }
-        
+
         if ($this->subCategory) {
             $path[] = $this->subCategory->name;
         }
-        
+
         if ($this->childSubCategory) {
             $path[] = $this->childSubCategory->name;
         }
-        
+
         return implode(' > ', $path);
     }
 
@@ -121,11 +121,11 @@ class Item extends Model
         if ($this->location) {
             return $this->location;
         }
-        
+
         if ($this->location_id && $this->location) {
             return $this->location->display_name ?? $this->location->name ?? $this->location->full_address;
         }
-        
+
         return 'No location specified';
     }
 
@@ -159,18 +159,18 @@ class Item extends Model
     public function scopeByCategory($query, $categoryName)
     {
         return $query->where('category_name', $categoryName)
-                    ->orWhereHas('category', function($q) use ($categoryName) {
-                        $q->where('name', $categoryName);
-                    });
+            ->orWhereHas('category', function ($q) use ($categoryName) {
+                $q->where('name', $categoryName);
+            });
     }
 
     public function scopeByLocation($query, $location)
     {
         return $query->where('location', 'like', "%{$location}%")
-                    ->orWhereHas('location', function($q) use ($location) {
-                        $q->where('name', 'like', "%{$location}%")
-                          ->orWhere('full_address', 'like', "%{$location}%");
-                    });
+            ->orWhereHas('location', function ($q) use ($location) {
+                $q->where('name', 'like', "%{$location}%")
+                    ->orWhere('full_address', 'like', "%{$location}%");
+            });
     }
 
     // Helper methods
@@ -194,5 +194,25 @@ class Item extends Model
         return $this->is_promoted &&
             $this->promoted_until &&
             $this->promoted_until->isFuture();
+    }
+
+    public function favorites()
+    {
+        return $this->belongsToMany(User::class, 'favorites', 'item_id', 'user_id')->withTimestamps();
+    }
+
+    public function views()
+    {
+        return $this->hasMany(ItemView::class);
+    }
+
+    // Add this scope for better performance
+    public function scopeWithOptimizedRelations($query)
+    {
+        return $query->with([
+            'user:id,name,profile_image',
+            'primaryImage:id,item_id,url,is_primary',
+            'category:id,name,icon'
+        ]);
     }
 }
