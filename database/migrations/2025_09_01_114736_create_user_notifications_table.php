@@ -16,7 +16,7 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('title');
             $table->text('body');
-            $table->string('type'); // system, message, order, promotion, security
+            $table->enum('type', ['chat', 'offer', 'system', 'marketing'])->default('system');
             $table->json('data')->nullable();
             $table->boolean('is_read')->default(false);
             $table->timestamp('read_at')->nullable();

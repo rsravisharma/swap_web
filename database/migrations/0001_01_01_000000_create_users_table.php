@@ -75,11 +75,18 @@ return new class extends Migration
             $table->decimal('seller_rating', 3, 2)->default(0.00);
             $table->integer('total_reviews')->default(0);
 
+            $table->integer('total_listings')->default(0); // Total items listed
+            $table->integer('active_listings')->default(0); // Currently active listings
+            $table->integer('followers_count')->default(0);
+            $table->integer('following_count')->default(0);
+            $table->timestamp('stats_last_updated')->nullable();
+
             // Timestamps
             $table->timestamp('last_active_at')->nullable();
             $table->rememberToken();
             $table->timestamps();
 
+            $table->index('fcm_token');
             $table->index('email');
             $table->index('phone');
             $table->index('email_verified_at');

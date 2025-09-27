@@ -11,6 +11,7 @@ use App\Models\UserBlock;
 use App\Models\Item;
 use App\Models\Favorite;
 use App\Models\Purchase;
+use App\Models\UserRating;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -190,39 +191,28 @@ class ProfileController extends Controller
      * Get user statistics
      * GET /profile/stats or GET /profile/stats/{userId}
      */
-    public function getUserStats(?string $userId = null): JsonResponse
+    public function getUserStats(?string $userId = null, bool $forceRefresh = false): JsonResponse
     {
         try {
             $targetUserId = $userId ?: Auth::id();
-
-            // Debug logging
             Log::info('Getting stats for user ID: ' . $targetUserId);
 
-            $listings = Item::where('user_id', $targetUserId)->count();
-            $sold = Item::where('user_id', $targetUserId)->where('status', 'sold')->count();
-            $purchases = Purchase::where('user_id', $targetUserId)->count();
-            $followers = UserFollow::where('followed_id', $targetUserId)->count();
-            $following = UserFollow::where('follower_id', $targetUserId)->count();
-
-            // Get rating from user model
             $user = User::find($targetUserId);
-            $rating = $user ? (float) $user->seller_rating : 0.0;
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found'
+                ], 404);
+            }
 
-            $stats = [
-                'listings' => $listings,
-                'sold' => $sold,
-                'purchases' => $purchases,
-                'followers' => $followers,
-                'following' => $following,
-                'rating' => $rating,
-                'total_earnings' => $user ? (float) $user->total_earnings : 0.0,
-                'total_spent' => $user ? (float) $user->total_spent : 0.0,
-                'items_sold' => $user ? $user->items_sold : 0,
-                'items_bought' => $user ? $user->items_bought : 0,
-                'total_reviews' => $user ? $user->total_reviews : 0,
-            ];
-
-            Log::info('Stats calculated: ', $stats);
+            // ✅ OPTION 1: Use cached counters (fastest)
+            if ($forceRefresh) {
+                $stats = $this->calculateAndCacheUserStats($user);
+            } elseif ($this->shouldUseCachedStats($user)) {
+                $stats = $this->getCachedUserStats($user);
+            } else {
+                $stats = $this->calculateAndCacheUserStats($user);
+            }
 
             return response()->json([
                 'success' => true,
@@ -233,6 +223,236 @@ class ProfileController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch user stats',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    private function shouldUseCachedStats(User $user): bool
+    {
+        // If stats were updated recently (within last hour), use cache
+        if (
+            $user->stats_last_updated &&
+            $user->stats_last_updated->gt(now()->subHour())
+        ) {
+            return true;
+        }
+
+        // For high-activity users, use cache more aggressively
+        if ($user->total_listings > 100) {
+            return $user->stats_last_updated &&
+                $user->stats_last_updated->gt(now()->subMinutes(30));
+        }
+
+        return false;
+    }
+
+    private function getCachedUserStats(User $user): array
+    {
+        return [
+            'listings' => $user->total_listings,
+            'active_listings' => $user->active_listings,
+            'sold' => $user->items_sold,
+            'purchases' => $user->items_bought,
+            'followers' => $user->followers_count,
+            'following' => $user->following_count,
+            'rating' => (float) $user->seller_rating,
+            'total_earnings' => (float) $user->total_earnings,
+            'total_spent' => (float) $user->total_spent,
+            'items_sold' => $user->items_sold,
+            'items_bought' => $user->items_bought,
+            'total_reviews' => $user->total_reviews,
+            'last_updated' => $user->stats_last_updated,
+            'is_cached' => true, // For debugging
+        ];
+    }
+
+    private function calculateAndCacheUserStats(User $user): array
+    {
+        // Calculate real-time values
+        $totalListings = Item::where('user_id', $user->id)->count();
+        $activeListings = Item::where('user_id', $user->id)
+            ->where('status', 'active')->count();
+        $sold = Item::where('user_id', $user->id)
+            ->where('status', 'sold')->count();
+        $purchases = Purchase::where('user_id', $user->id)->count();
+        $followers = UserFollow::where('followed_id', $user->id)->count();
+        $following = UserFollow::where('follower_id', $user->id)->count();
+
+        // Update user model with fresh counts
+        $user->update([
+            'total_listings' => $totalListings,
+            'active_listings' => $activeListings,
+            'items_sold' => $sold, // Update if different
+            'items_bought' => $purchases, // Update if different
+            'followers_count' => $followers,
+            'following_count' => $following,
+            'stats_last_updated' => now(),
+        ]);
+
+        return [
+            'listings' => $totalListings,
+            'active_listings' => $activeListings,
+            'sold' => $sold,
+            'purchases' => $purchases,
+            'followers' => $followers,
+            'following' => $following,
+            'rating' => (float) $user->seller_rating,
+            'total_earnings' => (float) $user->total_earnings,
+            'total_spent' => (float) $user->total_spent,
+            'items_sold' => $sold,
+            'items_bought' => $purchases,
+            'total_reviews' => $user->total_reviews,
+            'last_updated' => now(),
+            'is_cached' => false, // For debugging
+        ];
+    }
+
+    // ✅ NEW: Always get fresh data from database (never use cache)
+    public function getUserStatsRealtime(?string $userId = null): JsonResponse
+    {
+        try {
+            $targetUserId = $userId ?: Auth::id();
+            Log::info('Getting REALTIME stats for user ID: ' . $targetUserId);
+
+            $user = User::find($targetUserId);
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found'
+                ], 404);
+            }
+
+            // Always calculate from database - never use cache
+            $stats = $this->calculateRealtimeUserStats($user);
+
+            return response()->json([
+                'success' => true,
+                'data' => $stats
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch realtime user stats: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch realtime user stats',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // ✅ NEW: Calculate stats without updating cache (pure database query)
+    private function calculateRealtimeUserStats(User $user): array
+    {
+        Log::info('Calculating REALTIME stats from database for user: ' . $user->id);
+
+        // Calculate real-time values - pure database queries
+        $totalListings = Item::where('user_id', $user->id)->count();
+        $activeListings = Item::where('user_id', $user->id)
+            ->where('status', 'active')->count();
+        $sold = Item::where('user_id', $user->id)
+            ->where('status', 'sold')->count();
+        $purchases = Purchase::where('user_id', $user->id)->count();
+        $followers = UserFollow::where('followed_id', $user->id)->count();
+        $following = UserFollow::where('follower_id', $user->id)->count();
+
+        // Get total earnings from actual sold items
+        $totalEarnings = Item::where('user_id', $user->id)
+            ->where('status', 'sold')
+            ->sum('price');
+
+        // Get total spent from actual purchases
+        $totalSpent = Purchase::where('user_id', $user->id)
+            ->sum('price');
+
+        // ✅ FIXED: Use UserRating model with correct methods
+        $averageRating = UserRating::getAverageRating($user->id);
+        $totalReviews = UserRating::getTotalRatings($user->id);
+
+        // ✅ OPTIONAL: Get separate buyer and seller ratings
+        $sellerRating = UserRating::getAverageRating($user->id, 'seller');
+        $buyerRating = UserRating::getAverageRating($user->id, 'buyer');
+        $sellerReviews = UserRating::getTotalRatings($user->id, 'seller');
+        $buyerReviews = UserRating::getTotalRatings($user->id, 'buyer');
+
+        // Return fresh data without updating cache
+        return [
+            'listings' => $totalListings,
+            'active_listings' => $activeListings,
+            'sold' => $sold,
+            'purchases' => $purchases,
+            'followers' => $followers,
+            'following' => $following,
+            'rating' => (float) $averageRating,
+            'seller_rating' => (float) $sellerRating,
+            'buyer_rating' => (float) $buyerRating,
+            'total_earnings' => (float) $totalEarnings,
+            'total_spent' => (float) $totalSpent,
+            'items_sold' => $sold,
+            'items_bought' => $purchases,
+            'total_reviews' => $totalReviews,
+            'seller_reviews' => $sellerReviews,
+            'buyer_reviews' => $buyerReviews,
+            'last_updated' => now(),
+            'is_cached' => false,
+            'is_realtime' => true,
+            'data_source' => 'database_realtime'
+        ];
+    }
+
+    // ✅ ENHANCED: Option to compare cache vs database
+    public function compareUserStats(?string $userId = null): JsonResponse
+    {
+        try {
+            $targetUserId = $userId ?: Auth::id();
+            $user = User::find($targetUserId);
+
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found'
+                ], 404);
+            }
+
+            // Get cached stats
+            $cachedStats = $this->getCachedUserStats($user);
+
+            // Get realtime stats
+            $realtimeStats = $this->calculateRealtimeUserStats($user);
+
+            // Calculate differences
+            $differences = [];
+            $fields = ['listings', 'active_listings', 'sold', 'purchases', 'followers', 'following'];
+
+            foreach ($fields as $field) {
+                $cached = $cachedStats[$field] ?? 0;
+                $realtime = $realtimeStats[$field] ?? 0;
+                $diff = $realtime - $cached;
+
+                if ($diff !== 0) {
+                    $differences[$field] = [
+                        'cached' => $cached,
+                        'realtime' => $realtime,
+                        'difference' => $diff
+                    ];
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'cached_stats' => $cachedStats,
+                    'realtime_stats' => $realtimeStats,
+                    'differences' => $differences,
+                    'cache_is_accurate' => empty($differences),
+                    'cache_age' => $user->stats_last_updated ?
+                        now()->diffInMinutes($user->stats_last_updated) . ' minutes' : 'never updated'
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to compare user stats: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to compare user stats',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -334,7 +554,9 @@ class ProfileController extends Controller
     public function getUserDetails(string $userId): JsonResponse
     {
         try {
-            $user = User::find($userId);
+            $user = User::where('id', $userId)
+                ->where('is_active', true) // ✅ ADD: Only active users
+                ->first();
 
             if (!$user) {
                 return response()->json([
@@ -348,6 +570,18 @@ class ProfileController extends Controller
             $isBlocked = false;
 
             if ($authUser) {
+                // ✅ FIX: Check if current user is blocked by the target user
+                $blockedByTarget = UserBlock::where('blocker_id', $userId)
+                    ->where('blocked_id', $authUser->id)
+                    ->exists();
+
+                if ($blockedByTarget) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'User not found'
+                    ], 404);
+                }
+
                 $isFollowing = UserFollow::where('follower_id', $authUser->id)
                     ->where('followed_id', $userId)
                     ->exists();
@@ -361,6 +595,15 @@ class ProfileController extends Controller
             $userData['isFollowing'] = $isFollowing;
             $userData['isBlocked'] = $isBlocked;
 
+            // ✅ ADD: Remove sensitive data from public profile
+            unset(
+                $userData['email'],
+                $userData['phone'],
+                $userData['device_id'],
+                $userData['fcm_token'],
+                $userData['student_id']
+            );
+
             return response()->json([
                 'success' => true,
                 'data' => $userData
@@ -369,53 +612,6 @@ class ProfileController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch user details',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Toggle follow status
-     * POST /users/{userId}/follow
-     */
-    public function toggleFollow(string $userId): JsonResponse
-    {
-        try {
-            $authUser = Auth::user();
-
-            if ($authUser->id == $userId) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cannot follow yourself'
-                ], 400);
-            }
-
-            $follow = UserFollow::where('follower_id', $authUser->id)
-                ->where('followed_id', $userId)
-                ->first();
-
-            if ($follow) {
-                $follow->delete();
-                $isFollowing = false;
-                $message = 'User unfollowed successfully';
-            } else {
-                UserFollow::create([
-                    'follower_id' => $authUser->id,
-                    'followed_id' => $userId
-                ]);
-                $isFollowing = true;
-                $message = 'User followed successfully';
-            }
-
-            return response()->json([
-                'success' => true,
-                'is_following' => $isFollowing,
-                'message' => $message
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update follow status',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -437,6 +633,16 @@ class ProfileController extends Controller
                 ], 400);
             }
 
+            $targetUser = User::find($userId);
+            if (!$targetUser) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found'
+                ], 404);
+            }
+
+            DB::beginTransaction(); // ✅ ADD: Transaction for consistency
+
             $block = UserBlock::where('blocker_id', $authUser->id)
                 ->where('blocked_id', $userId)
                 ->first();
@@ -453,11 +659,20 @@ class ProfileController extends Controller
                 $isBlocked = true;
                 $message = 'User blocked successfully';
 
-                // Also unfollow if following
-                UserFollow::where('follower_id', $authUser->id)
+                // Also unfollow if following and update counters
+                $existingFollow = UserFollow::where('follower_id', $authUser->id)
                     ->where('followed_id', $userId)
-                    ->delete();
+                    ->first();
+
+                if ($existingFollow) {
+                    $existingFollow->delete();
+                    // ✅ FIX: Update cached counters when unfollowing due to block
+                    $authUser->decrement('following_count');
+                    $targetUser->decrement('followers_count');
+                }
             }
+
+            DB::commit(); // ✅ ADD: Commit transaction
 
             return response()->json([
                 'success' => true,
@@ -465,6 +680,7 @@ class ProfileController extends Controller
                 'message' => $message
             ]);
         } catch (\Exception $e) {
+            DB::rollback(); // ✅ ADD: Rollback on error
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update block status',
@@ -531,10 +747,23 @@ class ProfileController extends Controller
      * Get wishlist
      * GET /profile/wishlist
      */
-    public function getWishlist(): JsonResponse
+    public function getWishlist(Request $request): JsonResponse
     {
         try {
+            $validator = Validator::make($request->all(), [
+                'page' => 'sometimes|integer|min:1',
+                'per_page' => 'sometimes|integer|min:1|max:50'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
             $user = Auth::user();
+            $perPage = $request->input('per_page', 20);
 
             $wishlistItems = Item::whereHas('favorites', function ($query) use ($user) {
                 $query->where('user_id', $user->id);
@@ -542,11 +771,17 @@ class ProfileController extends Controller
                 ->with(['user:id,name,profile_image', 'images'])
                 ->where('status', 'active')
                 ->orderBy('created_at', 'desc')
-                ->get();
+                ->paginate($perPage); // ✅ ADD: Pagination
 
             return response()->json([
                 'success' => true,
-                'data' => $wishlistItems
+                'data' => $wishlistItems->items(),
+                'pagination' => [
+                    'current_page' => $wishlistItems->currentPage(),
+                    'total_pages' => $wishlistItems->lastPage(),
+                    'total_items' => $wishlistItems->total(),
+                    'per_page' => $wishlistItems->perPage(),
+                ]
             ]);
         } catch (\Exception $e) {
             return response()->json([

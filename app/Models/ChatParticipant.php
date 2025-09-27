@@ -125,4 +125,5 @@ class ChatParticipant extends Model
             'user_id' => $userId
         ]);
     }
+    
 }

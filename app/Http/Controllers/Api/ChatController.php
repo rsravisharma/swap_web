@@ -4,26 +4,17 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\ChatSession;
 use App\Models\ChatMessage;
-use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
-use Ably\AblyRest;
 use App\Http\Controllers\Controller;
+use App\Events\MessageSentEvent;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class ChatController extends Controller
 {
-    protected $ably;
-
-    public function __construct()
-    {
-        // Initialize Ably client
-        $this->ably = new AblyRest([
-            'key' => config('services.ably.key'),
-        ]);
-    }
-
     /**
      * Start or get existing chat session
      * POST /chat/session
@@ -62,28 +53,27 @@ class ChatController extends Controller
             $existingSession = ChatSession::where(function ($query) use ($currentUserId, $participantId, $itemId) {
                 $query->where(function ($q) use ($currentUserId, $participantId) {
                     $q->where('user_one_id', $currentUserId)
-                      ->where('user_two_id', $participantId);
+                        ->where('user_two_id', $participantId);
                 })->orWhere(function ($q) use ($currentUserId, $participantId) {
                     $q->where('user_one_id', $participantId)
-                      ->where('user_two_id', $currentUserId);
+                        ->where('user_two_id', $currentUserId);
                 });
-                
+
                 if ($itemId) {
                     $query->where('item_id', $itemId);
                 }
             })->first();
 
             if ($existingSession) {
-                // Update last activity
                 $existingSession->touch();
-                
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Chat session retrieved',
                     'data' => [
                         'session' => $this->formatSessionResponse($existingSession),
-                        'ably_channel' => "chat:{$existingSession->id}",
-                        'ably_auth_token' => $this->generateAblyToken($currentUserId, $existingSession->id)
+                        'ably_channel' => "private-chat.{$existingSession->id}", // Updated channel name
+                        'auth_data' => $this->getAuthData($currentUserId, $existingSession->id)
                     ]
                 ]);
             }
@@ -103,11 +93,10 @@ class ChatController extends Controller
                 'message' => 'Chat session created',
                 'data' => [
                     'session' => $this->formatSessionResponse($session),
-                    'ably_channel' => "chat:{$session->id}",
-                    'ably_auth_token' => $this->generateAblyToken($currentUserId, $session->id)
+                    'ably_channel' => "private-chat.{$session->id}",
+                    'auth_data' => $this->getAuthData($currentUserId, $session->id)
                 ]
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -118,16 +107,19 @@ class ChatController extends Controller
     }
 
     /**
-     * Send message
-     * POST /chat/message
+     * Store messages received from Ably webhooks or client-side fallback
+     * POST /chat/store-ably-message
      */
-    public function sendMessage(Request $request): JsonResponse
+    public function storeAblyMessage(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'session_id' => 'required|integer|exists:chat_sessions,id',
-            'message' => 'required|string|max:1000',
+            'sender_id' => 'required|integer|exists:users,id',
+            'message' => 'required|string|max:2000',
             'message_type' => 'in:text,image,file,offer,location',
             'metadata' => 'nullable|json',
+            'ably_message_id' => 'nullable|string', // For deduplication
+            'timestamp' => 'nullable|date',
         ]);
 
         if ($validator->fails()) {
@@ -139,71 +131,83 @@ class ChatController extends Controller
         }
 
         try {
-            $currentUserId = Auth::id();
             $sessionId = $request->session_id;
+            $senderId = $request->sender_id;
 
-            // Verify user is part of this session
+            // Verify session access for sender
             $session = ChatSession::where('id', $sessionId)
-                ->where(function ($query) use ($currentUserId) {
-                    $query->where('user_one_id', $currentUserId)
-                          ->orWhere('user_two_id', $currentUserId);
+                ->where(function ($query) use ($senderId) {
+                    $query->where('user_one_id', $senderId)
+                        ->orWhere('user_two_id', $senderId);
                 })
                 ->first();
 
             if (!$session) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Chat session not found or access denied'
+                    'message' => 'Session not found or access denied'
                 ], 404);
             }
 
-            // Check if session is active
-            if ($session->status !== 'active') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Chat session is not active'
-                ], 400);
+            // Check for duplicate messages using ably_message_id
+            if ($request->ably_message_id) {
+                $existing = ChatMessage::where('session_id', $sessionId)
+                    ->where('metadata->ably_message_id', $request->ably_message_id)
+                    ->first();
+
+                if ($existing) {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Message already stored',
+                        'data' => $this->formatMessageResponse($existing)
+                    ]);
+                }
             }
 
-            // Create message in database
+            // Prepare metadata
+            $metadata = $request->metadata ? json_decode($request->metadata, true) : [];
+            if ($request->ably_message_id) {
+                $metadata['ably_message_id'] = $request->ably_message_id;
+            }
+
+            // Store message in database
             $message = ChatMessage::create([
                 'session_id' => $sessionId,
-                'sender_id' => $currentUserId,
+                'sender_id' => $senderId,
                 'message' => $request->message,
                 'message_type' => $request->message_type ?? 'text',
-                'metadata' => $request->metadata ? json_decode($request->metadata, true) : null,
-                'status' => 'sent',
+                'metadata' => $metadata,
+                'status' => 'delivered', // Since it came from Ably, it's delivered
+                'created_at' => $request->timestamp ? Carbon::parse($request->timestamp) : now(),
             ]);
 
-            // Update session last message time
+            // Update session last message
             $session->update([
-                'last_message_at' => now(),
                 'last_message' => $request->message,
+                'last_message_at' => $message->created_at,
             ]);
-
-            // Format message for real-time transmission
-            $messageData = $this->formatMessageResponse($message);
-
-            // Send message via Ably (real-time)
-            $channel = $this->ably->channel("chat:{$sessionId}");
-            $channel->publish('new_message', $messageData);
-
-            // Send push notification to other participant(s)
-            $this->sendPushNotification($session, $message);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Message sent successfully',
-                'data' => $messageData
+                'message' => 'Message stored successfully',
+                'data' => $this->formatMessageResponse($message->load('sender'))
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to send message',
+                'message' => 'Failed to store message',
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function getAuthData(int $userId, int $sessionId): array
+    {
+        return [
+            'user_id' => $userId,
+            'session_id' => $sessionId,
+            'channel' => "private-chat.{$sessionId}",
+        ];
     }
 
     /**
@@ -219,7 +223,7 @@ class ChatController extends Controller
             $session = ChatSession::where('id', $sessionId)
                 ->where(function ($query) use ($currentUserId) {
                     $query->where('user_one_id', $currentUserId)
-                          ->orWhere('user_two_id', $currentUserId);
+                        ->orWhere('user_two_id', $currentUserId);
                 })
                 ->first();
 
@@ -259,7 +263,6 @@ class ChatController extends Controller
                     'session' => $this->formatSessionResponse($session)
                 ]
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -282,11 +285,11 @@ class ChatController extends Controller
 
             $sessions = ChatSession::where(function ($query) use ($currentUserId) {
                 $query->where('user_one_id', $currentUserId)
-                      ->orWhere('user_two_id', $currentUserId);
+                    ->orWhere('user_two_id', $currentUserId);
             })
-            ->with(['userOne:id,name,profile_image', 'userTwo:id,name,profile_image', 'item:id,title,images'])
-            ->orderBy('last_message_at', 'desc')
-            ->paginate($perPage, ['*'], 'page', $page);
+                ->with(['userOne:id,name,profile_image', 'userTwo:id,name,profile_image', 'item:id,title,images'])
+                ->orderBy('last_message_at', 'desc')
+                ->paginate($perPage, ['*'], 'page', $page);
 
             return response()->json([
                 'success' => true,
@@ -301,7 +304,6 @@ class ChatController extends Controller
                     ]
                 ]
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -329,7 +331,6 @@ class ChatController extends Controller
                 'success' => true,
                 'message' => 'Messages marked as read'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -351,7 +352,7 @@ class ChatController extends Controller
             $session = ChatSession::where('id', $sessionId)
                 ->where(function ($query) use ($currentUserId) {
                     $query->where('user_one_id', $currentUserId)
-                          ->orWhere('user_two_id', $currentUserId);
+                        ->orWhere('user_two_id', $currentUserId);
                 })
                 ->first();
 
@@ -369,34 +370,12 @@ class ChatController extends Controller
                 'success' => true,
                 'message' => 'Chat session archived'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete chat session',
                 'error' => $e->getMessage()
             ], 500);
-        }
-    }
-
-    /**
-     * Generate Ably auth token for user
-     */
-    private function generateAblyToken(int $userId, int $sessionId): string
-    {
-        try {
-            $tokenDetails = $this->ably->auth->requestToken([
-                'clientId' => (string) $userId,
-                'capability' => [
-                    "chat:{$sessionId}" => ['publish', 'subscribe'],
-                ],
-                'ttl' => 3600000, // 1 hour in milliseconds
-            ]);
-
-            return $tokenDetails->token;
-        } catch (\Exception $e) {
-            \Log::error('Failed to generate Ably token: ' . $e->getMessage());
-            return '';
         }
     }
 
@@ -458,14 +437,5 @@ class ChatController extends Controller
     /**
      * Send push notification to other participant
      */
-    private function sendPushNotification(ChatSession $session, ChatMessage $message): void
-    {
-        // Implement push notification logic here
-        // This would integrate with Firebase or another push service
-        $currentUserId = Auth::id();
-        $recipientId = $session->user_one_id === $currentUserId ? $session->user_two_id : $session->user_one_id;
-        
-        // Queue push notification job
-        // dispatch(new SendChatNotificationJob($recipientId, $message));
-    }
+   
 }

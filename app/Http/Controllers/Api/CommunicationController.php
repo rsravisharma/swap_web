@@ -14,18 +14,19 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use App\Http\Controllers\Controller;
-use Ably\AblyRest;
+use Illuminate\Support\Facades\Log;
+
+// Broadcasting Events
+use App\Events\MessageSentEvent;
+use App\Events\MessageReadEvent;
+use App\Events\OfferSentEvent;
+use App\Events\OfferAcceptedEvent;
+use App\Events\OfferRejectedEvent;
+use App\Events\MessageDeletedEvent;
+use App\Events\MessageEditedEvent;
 
 class CommunicationController extends Controller
 {
-    protected $ably;
-
-    public function __construct()
-    {
-        $this->ably = new AblyRest([
-            'key' => config('services.ably.key'),
-        ]);
-    }
 
     /**
      * Get all chats for current user
@@ -40,20 +41,20 @@ class CommunicationController extends Controller
 
             $chats = ChatSession::where(function ($query) use ($currentUserId) {
                 $query->where('user_one_id', $currentUserId)
-                      ->orWhere('user_two_id', $currentUserId);
+                    ->orWhere('user_two_id', $currentUserId);
             })
-            ->with([
-                'userOne:id,name,profile_image',
-                'userTwo:id,name,profile_image',
-                'item:id,title,images',
-                'lastMessage'
-            ])
-            ->whereDoesntHave('participants', function ($query) use ($currentUserId) {
-                $query->where('user_id', $currentUserId)
-                      ->where('is_archived', true);
-            })
-            ->orderBy('last_message_at', 'desc')
-            ->paginate($limit, ['*'], 'page', $page);
+                ->with([
+                    'userOne:id,name,profile_image',
+                    'userTwo:id,name,profile_image',
+                    'item:id,title,images',
+                    'lastMessage'
+                ])
+                ->whereDoesntHave('participants', function ($query) use ($currentUserId) {
+                    $query->where('user_id', $currentUserId)
+                        ->where('is_archived', true);
+                })
+                ->orderBy('last_message_at', 'desc')
+                ->paginate($limit, ['*'], 'page', $page);
 
             $formattedChats = $chats->items()->map(function ($chat) use ($currentUserId) {
                 return $this->formatChatResponse($chat, $currentUserId);
@@ -69,7 +70,6 @@ class CommunicationController extends Controller
                     'has_more' => $chats->hasMorePages(),
                 ]
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -91,7 +91,7 @@ class CommunicationController extends Controller
             $chat = ChatSession::where('id', $chatId)
                 ->where(function ($query) use ($currentUserId) {
                     $query->where('user_one_id', $currentUserId)
-                          ->orWhere('user_two_id', $currentUserId);
+                        ->orWhere('user_two_id', $currentUserId);
                 })
                 ->first();
 
@@ -112,7 +112,6 @@ class CommunicationController extends Controller
                 'success' => true,
                 'message' => 'Chat deleted successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -137,18 +136,13 @@ class CommunicationController extends Controller
                 ->where('status', '!=', 'read')
                 ->update(['status' => 'read', 'read_at' => now()]);
 
-            // Broadcast read receipt via Ably
-            $channel = $this->ably->channel("chat:{$chatId}");
-            $channel->publish('message_read', [
-                'user_id' => $currentUserId,
-                'timestamp' => now()->toISOString()
-            ]);
+            // UPDATED: Use Laravel Broadcasting instead of direct Ably
+            broadcast(new MessageReadEvent($chatId, $currentUserId))->toOthers();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Chat marked as read'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -182,7 +176,7 @@ class CommunicationController extends Controller
             $chat = ChatSession::where('id', $chatId)
                 ->where(function ($query) use ($currentUserId) {
                     $query->where('user_one_id', $currentUserId)
-                          ->orWhere('user_two_id', $currentUserId);
+                        ->orWhere('user_two_id', $currentUserId);
                 })
                 ->first();
 
@@ -205,7 +199,6 @@ class CommunicationController extends Controller
                 'success' => true,
                 'message' => $isArchived ? 'Chat archived' : 'Chat unarchived'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -230,7 +223,7 @@ class CommunicationController extends Controller
             $chat = ChatSession::where('id', $chatId)
                 ->where(function ($query) use ($currentUserId) {
                     $query->where('user_one_id', $currentUserId)
-                          ->orWhere('user_two_id', $currentUserId);
+                        ->orWhere('user_two_id', $currentUserId);
                 })
                 ->first();
 
@@ -256,7 +249,6 @@ class CommunicationController extends Controller
                     'has_more' => $messages->hasMorePages(),
                 ]
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -268,6 +260,10 @@ class CommunicationController extends Controller
 
     /**
      * Send message
+     * POST /chats/{chatId}/messages
+     */
+    /**
+     * Send message - FINAL OPTIMIZED VERSION
      * POST /chats/{chatId}/messages
      */
     public function sendMessage(Request $request, string $chatId): JsonResponse
@@ -293,7 +289,7 @@ class CommunicationController extends Controller
             $chat = ChatSession::where('id', $chatId)
                 ->where(function ($query) use ($currentUserId) {
                     $query->where('user_one_id', $currentUserId)
-                          ->orWhere('user_two_id', $currentUserId);
+                        ->orWhere('user_two_id', $currentUserId);
                 })
                 ->first();
 
@@ -302,6 +298,14 @@ class CommunicationController extends Controller
                     'success' => false,
                     'message' => 'Chat not found'
                 ], 404);
+            }
+
+            // ADD: Check if session is active (from ChatController)
+            if ($chat->status !== 'active') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Chat session is not active'
+                ], 400);
             }
 
             // Create message
@@ -321,17 +325,20 @@ class CommunicationController extends Controller
                 'last_message_at' => now(),
             ]);
 
-            $messageData = $this->formatMessageResponse($message->load('sender'));
+            // Load sender relationship
+            $message->load('sender:id,name,profile_image');
 
-            // Send via Ably
-            $channel = $this->ably->channel("chat:{$chatId}");
-            $channel->publish('new_message', $messageData);
+            // Broadcast to Ably + trigger synchronous event listener
+            broadcast(new MessageSentEvent($message, $chat))->toOthers();
+
+            // ADD: Push notification (from ChatController)
+            $this->sendPushNotification($chat, $message);
 
             return response()->json([
                 'success' => true,
-                'data' => $messageData
+                'message' => 'Message sent successfully',
+                'data' => $this->formatMessageResponse($message)
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -341,47 +348,17 @@ class CommunicationController extends Controller
         }
     }
 
-    /**
-     * Send typing indicator
-     * POST /chats/{chatId}/typing
-     */
-    public function sendTypingIndicator(Request $request, string $chatId): JsonResponse
+    private function sendPushNotification(ChatSession $session, ChatMessage $message): void
     {
-        $validator = Validator::make($request->all(), [
-            'is_typing' => 'required|boolean',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
         try {
-            $currentUserId = Auth::id();
-
-            // Broadcast typing indicator via Ably
-            $channel = $this->ably->channel("chat:{$chatId}");
-            $channel->publish('typing_indicator', [
-                'user_id' => $currentUserId,
-                'is_typing' => $request->boolean('is_typing'),
-                'timestamp' => now()->toISOString()
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Typing indicator sent'
-            ]);
-
+            // Use your existing NotificationController method
+            $notificationController = app(NotificationController::class);
+            $notificationController->sendChatNotification($message);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to send typing indicator',
-                'error' => $e->getMessage()
-            ], 500);
+            Log::error('Push notification failed: ' . $e->getMessage());
         }
     }
+
 
     /**
      * Upload chat image
@@ -409,7 +386,6 @@ class CommunicationController extends Controller
                 'success' => true,
                 'image_url' => $imageUrl
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -438,7 +414,7 @@ class CommunicationController extends Controller
 
         try {
             $fileUrls = [];
-            
+
             foreach ($request->file('files') as $file) {
                 $path = $file->store('chat-files', 'public');
                 $fileUrls[] = Storage::url($path);
@@ -448,7 +424,6 @@ class CommunicationController extends Controller
                 'success' => true,
                 'file_urls' => $fileUrls
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -471,7 +446,7 @@ class CommunicationController extends Controller
             $chat = ChatSession::where('id', $chatId)
                 ->where(function ($query) use ($currentUserId) {
                     $query->where('user_one_id', $currentUserId)
-                          ->orWhere('user_two_id', $currentUserId);
+                        ->orWhere('user_two_id', $currentUserId);
                 })
                 ->first();
 
@@ -491,7 +466,6 @@ class CommunicationController extends Controller
                 'success' => true,
                 'data' => $offers
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -528,7 +502,7 @@ class CommunicationController extends Controller
             $chat = ChatSession::where('id', $chatId)
                 ->where(function ($query) use ($currentUserId) {
                     $query->where('user_one_id', $currentUserId)
-                          ->orWhere('user_two_id', $currentUserId);
+                        ->orWhere('user_two_id', $currentUserId);
                 })
                 ->first();
 
@@ -560,21 +534,13 @@ class CommunicationController extends Controller
                 'status' => 'pending',
             ]);
 
-            // Broadcast via Ably
-            $channel = $this->ably->channel("chat:{$chatId}");
-            $channel->publish('new_offer', [
-                'offer_id' => $offer->id,
-                'message_id' => $message->id,
-                'sender_id' => $currentUserId,
-                'amount' => $request->amount,
-                'currency' => $request->currency,
-            ]);
+            // UPDATED: Use Laravel Broadcasting
+            broadcast(new OfferSentEvent($offer, $chat))->toOthers();
 
             return response()->json([
                 'success' => true,
                 'data' => $offer
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -612,19 +578,16 @@ class CommunicationController extends Controller
                 'accepted_at' => now(),
             ]);
 
-            // Broadcast via Ably
-            $channel = $this->ably->channel("chat:{$chatId}");
-            $channel->publish('offer_accepted', [
-                'offer_id' => $offer->id,
-                'message_id' => $messageId,
-                'accepted_by' => $currentUserId,
-            ]);
+            // UPDATED: Use Laravel Broadcasting
+            broadcast(new OfferAcceptedEvent($offer, $currentUserId))->toOthers();
+
+            $notificationController = app(NotificationController::class);
+            $notificationController->sendOfferNotification($offer, 'accepted');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Offer accepted'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -662,19 +625,13 @@ class CommunicationController extends Controller
                 'rejected_at' => now(),
             ]);
 
-            // Broadcast via Ably
-            $channel = $this->ably->channel("chat:{$chatId}");
-            $channel->publish('offer_rejected', [
-                'offer_id' => $offer->id,
-                'message_id' => $messageId,
-                'rejected_by' => $currentUserId,
-            ]);
+            // UPDATED: Use Laravel Broadcasting
+            broadcast(new OfferRejectedEvent($offer, $currentUserId))->toOthers();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Offer rejected'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -711,18 +668,13 @@ class CommunicationController extends Controller
                 'deleted_at' => now(),
             ]);
 
-            // Broadcast via Ably
-            $channel = $this->ably->channel("chat:{$chatId}");
-            $channel->publish('message_deleted', [
-                'message_id' => $messageId,
-                'deleted_by' => $currentUserId,
-            ]);
+            // UPDATED: Use Laravel Broadcasting
+            broadcast(new MessageDeletedEvent($messageId, $chatId, $currentUserId))->toOthers();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Message deleted'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -770,19 +722,13 @@ class CommunicationController extends Controller
                 'edited_at' => now(),
             ]);
 
-            // Broadcast via Ably
-            $channel = $this->ably->channel("chat:{$chatId}");
-            $channel->publish('message_edited', [
-                'message_id' => $messageId,
-                'new_text' => $request->text,
-                'edited_by' => $currentUserId,
-            ]);
+            // UPDATED: Use Laravel Broadcasting
+            broadcast(new MessageEditedEvent($messageId, $chatId, $request->text, $currentUserId))->toOthers();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Message updated'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -817,7 +763,6 @@ class CommunicationController extends Controller
                 'success' => true,
                 'message' => 'User blocked successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -844,7 +789,6 @@ class CommunicationController extends Controller
                 'success' => true,
                 'message' => 'User unblocked successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -885,7 +829,6 @@ class CommunicationController extends Controller
                 'success' => true,
                 'message' => 'Chat reported successfully'
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -920,7 +863,7 @@ class CommunicationController extends Controller
             $chat = ChatSession::where('id', $chatId)
                 ->where(function ($q) use ($currentUserId) {
                     $q->where('user_one_id', $currentUserId)
-                      ->orWhere('user_two_id', $currentUserId);
+                        ->orWhere('user_two_id', $currentUserId);
                 })
                 ->first();
 
@@ -943,7 +886,6 @@ class CommunicationController extends Controller
                 'success' => true,
                 'data' => $messages
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -964,17 +906,16 @@ class CommunicationController extends Controller
 
             $count = ChatMessage::whereHas('session', function ($query) use ($currentUserId) {
                 $query->where('user_one_id', $currentUserId)
-                      ->orWhere('user_two_id', $currentUserId);
+                    ->orWhere('user_two_id', $currentUserId);
             })
-            ->where('sender_id', '!=', $currentUserId)
-            ->where('status', '!=', 'read')
-            ->count();
+                ->where('sender_id', '!=', $currentUserId)
+                ->where('status', '!=', 'read')
+                ->count();
 
             return response()->json([
                 'success' => true,
                 'count' => $count
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -1003,7 +944,7 @@ class CommunicationController extends Controller
     private function formatChatResponse($chat, $currentUserId): array
     {
         $otherUser = $chat->user_one_id === $currentUserId ? $chat->userTwo : $chat->userOne;
-        
+
         return [
             'id' => $chat->id,
             'session_type' => $chat->session_type,
