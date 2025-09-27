@@ -26,7 +26,6 @@ class CategoryController extends Controller
             $cacheKey = 'category_hierarchy_' . md5($request->getQueryString() ?? '');
 
             $data = Cache::remember($cacheKey, self::CACHE_DURATION, function () use ($request) {
-                // FIXED: Changed from 'subcategories.childSubcategories' to 'subCategories.childSubCategories'
                 $query = Category::with(['subCategories.childSubCategories'])
                     ->where('is_active', true)
                     ->orderBy('sort_order')

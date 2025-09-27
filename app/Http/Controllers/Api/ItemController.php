@@ -169,7 +169,9 @@ class ItemController extends Controller
             // Load relationships
             $item->load([
                 'user:id,name,profile_image,university,course',
-                'category',
+                'category:id,name',
+                'subCategory:id,name',
+                'childSubCategory:id,name',
                 'images'
             ]);
 
@@ -178,9 +180,45 @@ class ItemController extends Controller
                 HistoryService::addViewHistory(Auth::id(), $item->id, $item->title);
             }
 
+            // Format the response to match your Flutter expectations
+            $responseData = [
+                'id' => $item->id,
+                'user_id' => $item->user_id,
+                'title' => $item->title,
+                'description' => $item->description,
+                'category_name' => $item->category?->name ?? 'Unknown',
+                'category_id' => $item->category_id,
+                'sub_category_id' => $item->sub_category_id,
+                'child_sub_category_id' => $item->child_sub_category_id,
+                'price' => $item->price, // This should be a string like "300.00"
+                'condition' => $item->condition,
+                'status' => $item->status,
+                'location_id' => $item->location_id,
+                'location' => $item->location,
+                'contact_method' => $item->contact_method,
+                'tags' => $item->tags ?? [],
+                'is_sold' => (bool) $item->is_sold,
+                'is_archived' => (bool) $item->is_archived,
+                'is_promoted' => (bool) $item->is_promoted,
+                'promotion_type' => $item->promotion_type,
+                'promoted_until' => $item->promoted_until,
+                'sold_at' => $item->sold_at,
+                'archived_at' => $item->archived_at,
+                'created_at' => $item->created_at,
+                'updated_at' => $item->updated_at,
+                'user' => [
+                    'id' => $item->user->id,
+                    'name' => $item->user->name,
+                    'profile_image' => $item->user->profile_image,
+                    'university' => $item->user->university ?? '',
+                    'course' => $item->user->course ?? '',
+                ],
+                'images' => $item->images ?? []
+            ];
+
             return response()->json([
                 'success' => true,
-                'data' => $item
+                'data' => $responseData
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -190,6 +228,7 @@ class ItemController extends Controller
             ], 500);
         }
     }
+
 
     // Add a new method for editing (owner-only access)
     public function edit(Item $item): JsonResponse
