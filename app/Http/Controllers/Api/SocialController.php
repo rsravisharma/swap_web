@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\UserFollow;
+use App\Models\UserRating;
 use App\Models\Rating;
 use App\Models\Transaction;
 use App\Models\Item;
@@ -46,7 +47,6 @@ class SocialController extends Controller
                 'success' => true,
                 'data' => $followers
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get followers: ' . $e->getMessage());
             return response()->json([
@@ -85,7 +85,6 @@ class SocialController extends Controller
                 'success' => true,
                 'data' => $following
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get following: ' . $e->getMessage());
             return response()->json([
@@ -103,7 +102,7 @@ class SocialController extends Controller
     {
         try {
             $authUser = Auth::user();
-            
+
             if ($authUser->id == $userId) {
                 return response()->json([
                     'success' => false,
@@ -119,12 +118,17 @@ class SocialController extends Controller
                 ], 404);
             }
 
+            DB::beginTransaction(); // ✅ ADD: Transaction for consistency
+
             $existingFollow = UserFollow::where('follower_id', $authUser->id)
                 ->where('followed_id', $userId)
                 ->first();
 
             if ($existingFollow) {
                 $existingFollow->delete();
+                // ✅ ADD: Update cached counters
+                $authUser->decrement('following_count');
+                $targetUser->decrement('followers_count');
                 $isFollowing = false;
                 $message = 'User unfollowed successfully';
             } else {
@@ -132,9 +136,14 @@ class SocialController extends Controller
                     'follower_id' => $authUser->id,
                     'followed_id' => $userId
                 ]);
+                // ✅ ADD: Update cached counters
+                $authUser->increment('following_count');
+                $targetUser->increment('followers_count');
                 $isFollowing = true;
                 $message = 'User followed successfully';
             }
+
+            DB::commit();
 
             return response()->json([
                 'success' => true,
@@ -143,8 +152,8 @@ class SocialController extends Controller
                 ],
                 'message' => $message
             ]);
-
         } catch (\Exception $e) {
+            DB::rollback();
             Log::error('Failed to toggle follow: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
@@ -179,7 +188,6 @@ class SocialController extends Controller
                 'success' => true,
                 'message' => 'Follower removed successfully'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to remove follower: ' . $e->getMessage());
             return response()->json([
@@ -193,45 +201,70 @@ class SocialController extends Controller
      * Get user ratings
      * GET /users/{userId}/ratings
      */
-    public function getUserRatings(string $userId): JsonResponse
+    public function getUserRatings(string $userId, Request $request): JsonResponse
     {
         try {
-            $ratings = Rating::where('rated_user_id', $userId)
-                ->with(['rater:id,name,profile_image', 'transaction'])
-                ->orderBy('created_at', 'desc')
-                ->get();
+            $validator = Validator::make($request->all(), [
+                'type' => 'sometimes|string|in:buyer,seller',
+                'page' => 'sometimes|integer|min:1',
+                'per_page' => 'sometimes|integer|min:1|max:50'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $type = $request->input('type');
+            $perPage = $request->input('per_page', 20);
+
+            $query = UserRating::where('rated_id', $userId)
+                ->public() // Only public ratings
+                ->with(['rater:id,name,profile_image', 'transaction']);
+
+            if ($type) {
+                $query->byType($type);
+            }
+
+            $ratings = $query->orderBy('created_at', 'desc')
+                ->paginate($perPage);
 
             $ratingsData = $ratings->map(function ($rating) {
                 return [
                     'id' => $rating->id,
                     'rating' => $rating->rating,
-                    'comment' => $rating->comment,
+                    'review' => $rating->review, // ✅ CHANGED: review instead of comment
+                    'type' => $rating->type,
                     'created_at' => $rating->created_at->toDateTimeString(),
                     'transaction_id' => $rating->transaction_id,
                     'rater' => [
                         'id' => $rating->rater->id,
                         'name' => $rating->rater->name,
                         'profile_image' => $rating->rater->profile_image
-                    ],
-                    'helpful_count' => $rating->helpful_count ?? 0,
-                    'is_helpful' => $rating->userHelpfulMarks()
-                        ->where('user_id', Auth::id())
-                        ->exists()
+                    ]
                 ];
             });
 
-            $averageRating = $ratings->avg('rating') ?? 0;
-            $totalRatings = $ratings->count();
+            // ✅ CHANGED: Use UserRating helper methods
+            $averageRating = UserRating::getAverageRating($userId, $type);
+            $totalRatings = UserRating::getTotalRatings($userId, $type);
 
             return response()->json([
                 'success' => true,
                 'data' => [
                     'ratings' => $ratingsData,
                     'average_rating' => round($averageRating, 2),
-                    'total_ratings' => $totalRatings
+                    'total_ratings' => $totalRatings,
+                    'pagination' => [
+                        'current_page' => $ratings->currentPage(),
+                        'total_pages' => $ratings->lastPage(),
+                        'total_items' => $ratings->total(),
+                        'per_page' => $ratings->perPage(),
+                    ]
                 ]
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get user ratings: ' . $e->getMessage());
             return response()->json([
@@ -248,10 +281,12 @@ class SocialController extends Controller
     public function submitRating(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'rated_user_id' => 'required|integer|exists:users,id',
+            'rated_id' => 'required|integer|exists:users,id', // ✅ CHANGED: rated_id
             'transaction_id' => 'required|integer|exists:transactions,id',
             'rating' => 'required|integer|between:1,5',
-            'comment' => 'nullable|string|max:1000'
+            'review' => 'nullable|string|max:1000', // ✅ CHANGED: review
+            'type' => 'required|string|in:buyer,seller',
+            'is_public' => 'sometimes|boolean'
         ]);
 
         if ($validator->fails()) {
@@ -263,11 +298,11 @@ class SocialController extends Controller
 
         try {
             $authUser = Auth::user();
-            $ratedUserId = $request->rated_user_id;
+            $ratedId = $request->rated_id;
             $transactionId = $request->transaction_id;
 
             // Prevent self-rating
-            if ($authUser->id == $ratedUserId) {
+            if ($authUser->id == $ratedId) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Cannot rate yourself'
@@ -278,7 +313,7 @@ class SocialController extends Controller
             $transaction = Transaction::where('id', $transactionId)
                 ->where(function ($query) use ($authUser) {
                     $query->where('buyer_id', $authUser->id)
-                          ->orWhere('seller_id', $authUser->id);
+                        ->orWhere('seller_id', $authUser->id);
                 })
                 ->first();
 
@@ -290,8 +325,8 @@ class SocialController extends Controller
             }
 
             // Check if already rated
-            $existingRating = Rating::where('rater_id', $authUser->id)
-                ->where('rated_user_id', $ratedUserId)
+            $existingRating = UserRating::where('rater_id', $authUser->id)
+                ->where('rated_id', $ratedId)
                 ->where('transaction_id', $transactionId)
                 ->first();
 
@@ -302,27 +337,44 @@ class SocialController extends Controller
                 ], 400);
             }
 
-            $rating = Rating::create([
+            DB::beginTransaction();
+
+            $rating = UserRating::create([
                 'rater_id' => $authUser->id,
-                'rated_user_id' => $ratedUserId,
+                'rated_id' => $ratedId,
                 'transaction_id' => $transactionId,
                 'rating' => $request->rating,
-                'comment' => $request->comment
+                'review' => $request->review,
+                'type' => $request->type,
+                'is_public' => $request->input('is_public', true)
             ]);
+
+            // ✅ ADD: Update user's cached rating stats
+            $ratedUser = User::find($ratedId);
+            if ($ratedUser) {
+                $newAverage = UserRating::getAverageRating($ratedId);
+                $totalReviews = UserRating::getTotalRatings($ratedId);
+
+                $ratedUser->update([
+                    'seller_rating' => $newAverage,
+                    'total_reviews' => $totalReviews
+                ]);
+            }
+
+            DB::commit();
 
             $ratingData = [
                 'id' => $rating->id,
                 'rating' => $rating->rating,
-                'comment' => $rating->comment,
+                'review' => $rating->review,
+                'type' => $rating->type,
                 'created_at' => $rating->created_at->toDateTimeString(),
                 'transaction_id' => $rating->transaction_id,
                 'rater' => [
                     'id' => $authUser->id,
                     'name' => $authUser->name,
                     'profile_image' => $authUser->profile_image
-                ],
-                'helpful_count' => 0,
-                'is_helpful' => false
+                ]
             ];
 
             return response()->json([
@@ -330,8 +382,8 @@ class SocialController extends Controller
                 'data' => $ratingData,
                 'message' => 'Rating submitted successfully'
             ], 201);
-
         } catch (\Exception $e) {
+            DB::rollback();
             Log::error('Failed to submit rating: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
@@ -379,7 +431,6 @@ class SocialController extends Controller
                 'success' => true,
                 'message' => 'Rating marked as helpful'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to mark rating helpful: ' . $e->getMessage());
             return response()->json([
@@ -427,7 +478,6 @@ class SocialController extends Controller
                 'success' => true,
                 'message' => 'Rating reported successfully'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to report rating: ' . $e->getMessage());
             return response()->json([
@@ -445,11 +495,11 @@ class SocialController extends Controller
     {
         try {
             $authUser = Auth::user();
-            
+
             $transaction = Transaction::where('id', $transactionId)
                 ->where(function ($query) use ($authUser) {
                     $query->where('buyer_id', $authUser->id)
-                          ->orWhere('seller_id', $authUser->id);
+                        ->orWhere('seller_id', $authUser->id);
                 })
                 ->with(['buyer:id,name,profile_image', 'seller:id,name,profile_image', 'item'])
                 ->first();
@@ -465,7 +515,6 @@ class SocialController extends Controller
                 'success' => true,
                 'data' => $transaction
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get transaction details: ' . $e->getMessage());
             return response()->json([
@@ -505,9 +554,9 @@ class SocialController extends Controller
                 DB::raw('AVG(ratings.rating) as average_rating'),
                 DB::raw('SUM(transactions.amount) as total_earnings')
             ])
-            ->join('transactions', 'users.id', '=', 'transactions.seller_id')
-            ->leftJoin('ratings', 'users.id', '=', 'ratings.rated_user_id')
-            ->where('transactions.status', 'completed');
+                ->join('transactions', 'users.id', '=', 'transactions.seller_id')
+                ->leftJoin('ratings', 'users.id', '=', 'ratings.rated_user_id')
+                ->where('transactions.status', 'completed');
 
             // Apply period filter
             switch ($period) {
@@ -520,7 +569,7 @@ class SocialController extends Controller
                 case 'year':
                     $query->where('transactions.created_at', '>=', now()->subYear());
                     break;
-                // 'all' - no date filter
+                    // 'all' - no date filter
             }
 
             $topSellers = $query->groupBy('users.id', 'users.name', 'users.profile_image')
@@ -545,7 +594,6 @@ class SocialController extends Controller
                 'success' => true,
                 'data' => $topSellers
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to get top sellers: ' . $e->getMessage());
             return response()->json([

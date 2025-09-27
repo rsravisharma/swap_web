@@ -67,7 +67,7 @@ Route::prefix('categories')->group(function () {
     Route::get('path', [CategoryController::class, 'getCategoryPath']);
     Route::get('stats', [HomeController::class, 'categoryStats']);
     Route::delete('cache', [CategoryController::class, 'clearCache']);
-    
+
     // Dynamic parameter routes last
     Route::get('{categoryId}/sub-categories', [CategoryController::class, 'getSubCategories']);
     Route::get('{categoryId}/items', [CategoryItemController::class, 'categoryItems']);
@@ -151,7 +151,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('chat')->group(function () {
         Route::get('sessions', [ChatController::class, 'getUserSessions']);
         Route::post('session', [ChatController::class, 'startSession']);
-        Route::post('message', [ChatController::class, 'sendMessage']);
         Route::post('store-ably-message', [ChatController::class, 'storeAblyMessage']);
         Route::get('session/{sessionId}/messages', [ChatController::class, 'getMessages']);
         Route::post('session/{sessionId}/read', [ChatController::class, 'markAsRead']);
@@ -167,7 +166,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('{chatId}/offers', [CommunicationController::class, 'getOfferHistory']);
 
         Route::post('{chatId}/messages', [CommunicationController::class, 'sendMessage']);
-        Route::post('{chatId}/typing', [CommunicationController::class, 'sendTypingIndicator']);
         Route::post('{chatId}/offers', [CommunicationController::class, 'sendOffer']);
         Route::post('{chatId}/report', [CommunicationController::class, 'reportChat']);
 
@@ -185,26 +183,37 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('upload/chat-files', [CommunicationController::class, 'uploadChatFiles']);
     Route::get('ping', [CommunicationController::class, 'ping']);
 
+    Route::post('/broadcasting/auth', function () {
+        return response()->json(['error' => 'Use Sanctum auth for broadcasting'], 401);
+    })->middleware('auth:sanctum');
+
+
     // ================================
     // NOTIFICATION ROUTES
     // ================================
-    Route::prefix('notifications')->group(function () {
-        Route::get('/', [NotificationController::class, 'getNotifications']);
-        Route::get('preferences', [NotificationController::class, 'getPreferences']);
+    Route::middleware('auth:sanctum')->group(function () {
+        // Notification routes
+        Route::prefix('notifications')->group(function () {
+            Route::get('/', [NotificationController::class, 'getUserNotifications']);
+            Route::post('token', [NotificationController::class, 'updateToken']);
+            Route::get('preferences', [NotificationController::class, 'getPreferences']);
+            Route::put('preferences', [NotificationController::class, 'updatePreferences']);
+            Route::post('subscribe', [NotificationController::class, 'subscribeToTopic']);
+            Route::post('unsubscribe', [NotificationController::class, 'unsubscribeFromTopic']);
+            Route::post('test', [NotificationController::class, 'testNotification']);
+            Route::put('{id}/read', [NotificationController::class, 'markAsRead']);
+            Route::put('mark-all-read', [NotificationController::class, 'markAllAsRead']);
+            Route::post('send-topic', [NotificationController::class, 'sendTopicNotification'])->middleware('admin');
+            Route::delete('{id}', [NotificationController::class, 'deleteNotification']);
+            Route::delete('clear-all', [NotificationController::class, 'clearAllNotifications']);
+        });
 
-        Route::post('token', [NotificationController::class, 'updateToken']);
-        Route::post('test', [NotificationController::class, 'testNotification']);
-        Route::post('subscribe', [NotificationController::class, 'subscribeToTopic']);
-        Route::post('unsubscribe', [NotificationController::class, 'unsubscribeFromTopic']);
-        Route::post('send-topic', [NotificationController::class, 'sendTopicNotification'])
-            ->middleware('admin');
-
-        Route::put('preferences', [NotificationController::class, 'updatePreferences']);
-        Route::put('mark-all-read', [NotificationController::class, 'markAllAsRead']);
-        Route::put('{id}/read', [NotificationController::class, 'markAsRead']);
-
-        Route::delete('clear-all', [NotificationController::class, 'clearAllNotifications']);
-        Route::delete('{id}', [NotificationController::class, 'deleteNotification']);
+        // User notification settings
+        Route::prefix('user')->group(function () {
+            Route::get('notification-settings', [NotificationController::class, 'getNotificationSettings']);
+            Route::put('notification-settings', [NotificationController::class, 'saveNotificationSettings']);
+            Route::put('fcm-token', [NotificationController::class, 'updateFCMToken']);
+        });
     });
 
     // ================================
@@ -348,9 +357,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('student', [ProfileController::class, 'getStudentProfile']);
         Route::get('earnings', [ProfileController::class, 'getEarningsHistory']);
         Route::get('wishlist', [ProfileController::class, 'getWishlist']);
-        // Two separate routes instead of optional parameter
+
+        // Stats routes with rate limiting
         Route::get('stats', [ProfileController::class, 'getCurrentUserStats']);
         Route::get('stats/{userId}', [ProfileController::class, 'getUserStats']);
+        Route::get('stats/realtime', [ProfileController::class, 'getUserStatsRealtime'])
+            ->middleware('throttle:10,1'); // ✅ ADD: Rate limiting
+        Route::get('stats/compare', [ProfileController::class, 'compareUserStats'])
+            ->middleware('throttle:5,1'); // ✅ ADD: Rate limiting
 
         Route::put('/', [ProfileController::class, 'updateProfile']);
 
@@ -440,11 +454,17 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('{userId}/ratings', [SocialController::class, 'getUserRatings']);
         Route::get('{userId}/items', [ItemController::class, 'getUserItems']);
 
-        // POST/DELETE routes
-        Route::post('{userId}/toggle-follow', [SocialController::class, 'toggleFollow']);
-        Route::post('{userId}/follow', [ProfileController::class, 'toggleFollow']);
-        Route::post('{userId}/block', [CommunicationController::class, 'blockUser']);
-        Route::post('{userId}/unblock', [CommunicationController::class, 'unblockUser']);
+        // ✅ SOCIAL ACTIONS: Both patterns are needed
+        Route::post('{userId}/toggle-follow', [SocialController::class, 'toggleFollow']); // Toggle action
+        Route::post('{userId}/follow', [SocialController::class, 'toggleFollow']); // Same method, different endpoint
+
+        // ✅ BLOCKING: Keep separate block/unblock OR single toggle
+        Route::post('{userId}/block', [ProfileController::class, 'toggleBlock']); // Toggle block
+        Route::post('{userId}/unblock', [ProfileController::class, 'toggleBlock']); // Same method, different endpoint
+
+        // ✅ ALTERNATIVE: If CommunicationController has separate methods
+        // Route::post('{userId}/block', [CommunicationController::class, 'blockUser']);
+        // Route::post('{userId}/unblock', [CommunicationController::class, 'unblockUser']);
 
         Route::delete('followers/{userId}', [SocialController::class, 'removeFollower']);
 
@@ -452,9 +472,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('{userId}', [ProfileController::class, 'getUserDetails']);
     });
 
-    Route::post('ratings', [SocialController::class, 'submitRating']);
-    Route::post('ratings/{ratingId}/helpful', [SocialController::class, 'markRatingHelpful']);
-    Route::post('ratings/{ratingId}/report', [SocialController::class, 'reportRating']);
+    // Rating routes
+    Route::prefix('ratings')->group(function () {
+        Route::post('/', [SocialController::class, 'submitRating']);
+        Route::post('{ratingId}/helpful', [SocialController::class, 'markRatingHelpful']);
+        Route::post('{ratingId}/report', [SocialController::class, 'reportRating']);
+    });
     Route::get('transactions/{transactionId}', [SocialController::class, 'getTransactionDetails']);
 
     // ================================

@@ -36,6 +36,8 @@ class User extends Authenticatable implements MustVerifyEmail
         'facebook_id',
         'fcm_token',
         'device_id',
+        'device_type',
+        'last_token_update',
         'preferred_language',
         'is_active',
         'notifications_enabled',
@@ -70,6 +72,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'total_earnings' => 'decimal:2',
         'total_spent' => 'decimal:2',
         'seller_rating' => 'decimal:2',
+        'last_token_update' => 'datetime',
     ];
 
     protected $appends = [
@@ -256,5 +259,80 @@ class User extends Authenticatable implements MustVerifyEmail
     public function notificationSettings()
     {
         return $this->hasOne(NotificationSetting::class);
+    }
+
+    public function sellerRatings()
+    {
+        return $this->hasMany(UserRating::class, 'rated_id')->byType('seller');
+    }
+
+    public function buyerRatings()
+    {
+        return $this->hasMany(UserRating::class, 'rated_id')->byType('buyer');
+    }
+
+    public function publicRatings()
+    {
+        return $this->hasMany(UserRating::class, 'rated_id')->public();
+    }
+
+    public function getAverageSellerRatingAttribute()
+    {
+        return UserRating::getAverageRating($this->id, 'seller');
+    }
+
+    public function getAverageBuyerRatingAttribute()
+    {
+        return UserRating::getAverageRating($this->id, 'buyer');
+    }
+
+    public function getTotalSellerReviewsAttribute()
+    {
+        return UserRating::getTotalRatings($this->id, 'seller');
+    }
+
+    public function getTotalBuyerReviewsAttribute()
+    {
+        return UserRating::getTotalRatings($this->id, 'buyer');
+    }
+
+    public function notificationPreferences()
+    {
+        return $this->hasOne(UserNotificationPreference::class);
+    }
+
+    public function notifications()
+    {
+        return $this->hasMany(UserNotification::class);
+    }
+
+    public function hasValidFCMToken(): bool
+    {
+        return !empty($this->fcm_token) && $this->last_token_update &&
+            $this->last_token_update->gt(now()->subDays(60)); // Token not older than 60 days
+    }
+
+    public function updateFCMToken(string $token, string $deviceType = null): void
+    {
+        $this->update([
+            'fcm_token' => $token,
+            'device_type' => $deviceType ?: $this->device_type,
+            'last_token_update' => now(),
+        ]);
+    }
+
+    public function chatSessionsAsUserOne()
+    {
+        return $this->hasMany(ChatSession::class, 'user_one_id');
+    }
+
+    public function chatSessionsAsUserTwo()
+    {
+        return $this->hasMany(ChatSession::class, 'user_two_id');
+    }
+
+    public function chatSessions()
+    {
+        return $this->chatSessionsAsUserOne->merge($this->chatSessionsAsUserTwo);
     }
 }
