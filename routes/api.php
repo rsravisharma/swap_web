@@ -116,6 +116,29 @@ Route::prefix('legal')->group(function () {
     Route::get('document/{documentType}', [LegalController::class, 'getLegalDocument']);
 });
 
+Route::get('/debug-ably-token', function() {
+    try {
+        $token = request()->header('X-Ably-Token');
+        if (!$token) {
+            return response()->json(['error' => 'No token provided']);
+        }
+
+        // Decode the token (if it's JWT)
+        $parts = explode('.', $token);
+        if (count($parts) === 3) {
+            $payload = json_decode(base64_decode($parts[1]), true);
+            return response()->json([
+                'token_payload' => $payload,
+                'capability' => $payload['x-ably-capability'] ?? 'not found'
+            ]);
+        }
+
+        return response()->json(['error' => 'Invalid token format']);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()]);
+    }
+});
+
 // ================================
 // PROTECTED ROUTES (Authentication Required)
 // ================================
@@ -250,6 +273,61 @@ Route::middleware('auth:sanctum')->group(function () {
             ]);
 
             return response()->json(['error' => 'Authentication failed'], 500);
+        }
+    })->middleware('auth:sanctum');
+
+    Route::post('/auth/ably-channel-token', function (Request $request) {
+        try {
+            $currentUserId = Auth::id();
+            $channelName = $request->input('channel');
+
+            if (!$currentUserId || !$channelName) {
+                return response()->json(['success' => false, 'message' => 'Invalid request'], 400);
+            }
+
+            // Verify user has access to this specific channel
+            if (preg_match('/^private-chat\.(\d+)$/', $channelName, $matches)) {
+                $chatId = $matches[1];
+
+                $hasAccess = ChatSession::where('id', $chatId)
+                    ->where(function ($query) use ($currentUserId) {
+                        $query->where('user_one_id', $currentUserId)
+                            ->orWhere('user_two_id', $currentUserId);
+                    })
+                    ->exists();
+
+                if (!$hasAccess) {
+                    return response()->json(['success' => false, 'message' => 'Access denied'], 403);
+                }
+            }
+
+            $ably = new \Ably\AblyRest(['key' => config('services.ably.key')]);
+
+            // Generate token with access to specific channel
+            $tokenDetails = $ably->auth->requestToken([
+                'clientId' => (string) $currentUserId,
+                'capability' => json_encode([
+                    $channelName => ['*']  // Access to specific channel only
+                ]),
+                'ttl' => 3600000
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'token' => $tokenDetails->token,
+                    'expires_at' => intval($tokenDetails->expires / 1000),
+                    'client_id' => $tokenDetails->clientId,
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Channel-specific token generation failed', [
+                'user_id' => Auth::id(),
+                'channel' => $request->input('channel'),
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['success' => false, 'message' => 'Token generation failed'], 500);
         }
     })->middleware('auth:sanctum');
 
