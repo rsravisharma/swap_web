@@ -6,8 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
-use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
+use Illuminate\Support\Facades\Log;
 
 class AblyAuthController extends Controller
 {
@@ -27,35 +26,61 @@ class AblyAuthController extends Controller
                 ], 401);
             }
 
-            $ably = new \Ably\AblyRest([
-                'key' => config('ably.api_key')
+            // 🔥 FIX: Use the correct config path
+            $ablyKey = config('services.ably.key');
+            
+            if (!$ablyKey) {
+                Log::error('Ably key not found in config', [
+                    'config_value' => $ablyKey,
+                    'env_value' => env('ABLY_KEY')
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ably configuration missing'
+                ], 500);
+            }
+
+            Log::info('Generating Ably token', [
+                'user_id' => $currentUserId,
+                'key_length' => strlen($ablyKey)
             ]);
 
-            // 🔥 FIX: Generate token with proper channel permissions
+            $ably = new \Ably\AblyRest([
+                'key' => $ablyKey  // 🔥 Use the correct key
+            ]);
+
+            // Generate token with proper channel permissions
             $tokenDetails = $ably->auth->requestToken([
                 'clientId' => (string) $currentUserId,
                 'capability' => [
-                    // Allow access to user's private channels
                     "private-chat.*" => ["*"], // All operations on all private chat channels
-                    "presence-chat.*" => ["*"], // All operations on presence channels
+                    "presence-chat.*" => ["*"], // All operations on presence channels  
                     "typing.*" => ["*"], // Typing indicators
                 ],
                 'ttl' => 3600000 // 1 hour in milliseconds
+            ]);
+
+            Log::info('Ably token generated successfully', [
+                'user_id' => $currentUserId,
+                'client_id' => $tokenDetails->clientId,
+                'expires' => $tokenDetails->expires
             ]);
 
             return response()->json([
                 'success' => true,
                 'data' => [
                     'token' => $tokenDetails->token,
-                    'expires_at' => $tokenDetails->expires / 1000, // Convert to seconds
+                    'expires_at' => intval($tokenDetails->expires / 1000), // Convert to seconds
                     'client_id' => $tokenDetails->clientId,
                     'capability' => $tokenDetails->capability,
                 ]
             ]);
         } catch (\Exception $e) {
-            \Log::error('Failed to generate Ably token', [
+            Log::error('Failed to generate Ably token', [
                 'user_id' => Auth::id(),
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
 
             return response()->json([
@@ -66,9 +91,8 @@ class AblyAuthController extends Controller
         }
     }
 
-
     /**
-     * Get Ably configuration for client
+     * Get Ably configuration for client  
      * GET /auth/ably-config
      */
     public function getAblyConfig(Request $request): JsonResponse
@@ -89,14 +113,14 @@ class AblyAuthController extends Controller
                     'auth_url' => url('/api/auth/ably-token'),
                     'client_id' => (string) $user->id,
                     'channels' => [
-                        'messages' => "user:{$user->id}:messages",
-                        'typing' => "user:{$user->id}:typing",
-                        'offers' => "user:{$user->id}:offers"
+                        'messages' => "private-chat.*",  // 🔥 Updated to match Laravel broadcast
+                        'typing' => "typing.*",
+                        'offers' => "offers.*"
                     ]
                 ]
             ]);
         } catch (\Exception $e) {
-            \Log::error('Ably config failed', [
+            Log::error('Ably config failed', [
                 'user_id' => $user->id ?? null,
                 'error' => $e->getMessage()
             ]);
