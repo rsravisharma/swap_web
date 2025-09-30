@@ -26,15 +26,10 @@ class AblyAuthController extends Controller
                 ], 401);
             }
 
-            // 🔥 FIX: Use the correct config path
             $ablyKey = config('services.ably.key');
-            
+
             if (!$ablyKey) {
-                Log::error('Ably key not found in config', [
-                    'config_value' => $ablyKey,
-                    'env_value' => env('ABLY_KEY')
-                ]);
-                
+                Log::error('Ably key not found in config');
                 return response()->json([
                     'success' => false,
                     'message' => 'Ably configuration missing'
@@ -47,31 +42,40 @@ class AblyAuthController extends Controller
             ]);
 
             $ably = new \Ably\AblyRest([
-                'key' => $ablyKey  // 🔥 Use the correct key
+                'key' => $ablyKey
             ]);
 
-            // Generate token with proper channel permissions
+            // 🔥 FIX: Use string format for capabilities instead of array
+            $capabilities = [
+                'private-chat.*' => ['*'],
+                'presence-chat.*' => ['*'],
+                'typing.*' => ['*'],
+            ];
+
+            // Convert to the proper format that Ably expects
+            $capabilityString = json_encode($capabilities);
+
+            Log::info('Token capabilities', ['capability' => $capabilityString]);
+
+            // Generate token with proper format
             $tokenDetails = $ably->auth->requestToken([
                 'clientId' => (string) $currentUserId,
-                'capability' => [
-                    "private-chat.*" => ["*"], // All operations on all private chat channels
-                    "presence-chat.*" => ["*"], // All operations on presence channels  
-                    "typing.*" => ["*"], // Typing indicators
-                ],
+                'capability' => $capabilityString, // 🔥 Use JSON string format
                 'ttl' => 3600000 // 1 hour in milliseconds
             ]);
 
             Log::info('Ably token generated successfully', [
                 'user_id' => $currentUserId,
                 'client_id' => $tokenDetails->clientId,
-                'expires' => $tokenDetails->expires
+                'expires' => $tokenDetails->expires,
+                'capability' => $tokenDetails->capability
             ]);
 
             return response()->json([
                 'success' => true,
                 'data' => [
                     'token' => $tokenDetails->token,
-                    'expires_at' => intval($tokenDetails->expires / 1000), // Convert to seconds
+                    'expires_at' => intval($tokenDetails->expires / 1000),
                     'client_id' => $tokenDetails->clientId,
                     'capability' => $tokenDetails->capability,
                 ]
@@ -90,6 +94,7 @@ class AblyAuthController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Get Ably configuration for client  
