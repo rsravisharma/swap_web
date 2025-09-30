@@ -390,20 +390,21 @@ class CommunicationController extends Controller
             ]);
 
             // Broadcast to Ably + trigger synchronous event listener
-            try {
-                broadcast(new MessageSentEvent($message, $chat))->toOthers();
-                \Log::info('Broadcast completed', [
-                    'message_id' => $message->id,
-                    'result' => 'success'
-                ]);
-            } catch (\Exception $e) {
-                \Log::error('Broadcast failed', [
-                    'message_id' => $message->id,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString()
-                ]);
-                // Don't fail the request if broadcast fails
-            }
+            // try {
+            //     broadcast(new MessageSentEvent($message, $chat))->toOthers();
+            //     \Log::info('Broadcast completed', [
+            //         'message_id' => $message->id,
+            //         'result' => 'success'
+            //     ]);
+            // } catch (\Exception $e) {
+            //     \Log::error('Broadcast failed', [
+            //         'message_id' => $message->id,
+            //         'error' => $e->getMessage(),
+            //         'trace' => $e->getTraceAsString()
+            //     ]);
+            // }
+
+            $this->publishToAblyDirect($chat, $message);
 
             // ADD: Push notification (from ChatController)
             $this->sendPushNotification($chat, $message);
@@ -419,6 +420,50 @@ class CommunicationController extends Controller
                 'message' => 'Failed to send message',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    private function publishToAblyDirect(ChatSession $chat, ChatMessage $message): void
+    {
+        try {
+            $ably = new \Ably\AblyRest([
+                'key' => config('services.ably.key')
+            ]);
+
+            // 🔥 Use public channel (no auth required)
+            $channelName = 'chat-' . $chat->id;
+            $channel = $ably->channel($channelName);
+
+            $messageData = [
+                'id' => $message->id,
+                'session_id' => $message->session_id,
+                'sender_id' => $message->sender_id,
+                'message' => $message->message,
+                'message_type' => $message->message_type,
+                'metadata' => $message->metadata,
+                'status' => $message->status,
+                'created_at' => $message->created_at->toISOString(),
+                'sender' => [
+                    'id' => $message->sender->id,
+                    'name' => $message->sender->name,
+                    'profile_image' => $message->sender->profile_image,
+                ]
+            ];
+
+            // Publish to public channel
+            $result = $channel->publish('message.sent', $messageData);
+
+            \Log::info('Message published to public Ably channel', [
+                'channel' => $channelName,
+                'message_id' => $message->id,
+                'success' => true
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Failed to publish to Ably', [
+                'message_id' => $message->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
         }
     }
 
