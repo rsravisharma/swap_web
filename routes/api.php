@@ -145,6 +145,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/{id}', [LocationController::class, 'deleteUniversity']);
     });
 
+    Route::prefix('auth')->group(function () {
+        Route::get('ably-token', [AblyAuthController::class, 'getAblyToken']);
+        Route::get('ably-config', [AblyAuthController::class, 'getAblyConfig']);
+    });
+
     // ================================
     // CHAT & COMMUNICATION ROUTES
     // ================================
