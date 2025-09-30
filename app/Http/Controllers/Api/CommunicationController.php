@@ -236,15 +236,39 @@ class CommunicationController extends Controller
 
             // Get messages
             $messages = ChatMessage::where('session_id', $chatId)
-                ->with('sender:id,name,profile_image')
+                ->with(['sender' => function ($query) {
+                    // 🔥 FIX: Load more fields and debug profile_image
+                    $query->select('id', 'name', 'profile_image')
+                        ->addSelect(\DB::raw('profile_image as debug_profile_image'));
+                }])
                 ->orderBy('created_at', 'desc')
                 ->paginate($limit, ['*'], 'page', $page);
 
+            // 🔥 FIX: Enhanced formatting with debugging
             $formattedMessages = collect($messages->items())->map(function ($message) {
+                $sender = $message->sender;
+
+                // 🔍 DEBUG: Log the actual sender data
+                \Log::info('Sender data for message', [
+                    'message_id' => $message->id,
+                    'sender_id' => $message->sender_id,
+                    'sender' => $sender ? $sender->toArray() : 'null',
+                    'profile_image_raw' => $sender?->profile_image,
+                    'full_profile_image_url' => $sender?->full_profile_image_url,
+                ]);
+
                 return [
                     'id' => $message->id,
                     'sender_id' => $message->sender_id,
-                    'sender' => $message->sender,
+                    'sender' => $sender ? [
+                        'id' => $sender->id,
+                        'name' => $sender->name,
+                        'profile_image' => $sender->profile_image,
+                        'full_profile_image_url' => $sender->full_profile_image_url,
+                        'is_phone_verified' => $sender->is_phone_verified,
+                        'is_email_verified' => $sender->is_email_verified,
+                        'profile_completion_percentage' => $sender->profile_completion_percentage,
+                    ] : null,
                     'message' => $message->message,
                     'message_type' => $message->message_type ?? 'text',
                     'status' => $message->status ?? 'sent',
@@ -281,6 +305,7 @@ class CommunicationController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Send message
