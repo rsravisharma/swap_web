@@ -915,7 +915,7 @@ class ItemController extends Controller
     {
         $item = Item::findOrFail($id);
 
-        $related = Item::where('category', $item->category)
+        $related = Item::where('category_id', $item->category)
             ->where('id', '!=', $id)
             ->where('status', 'active')
             ->with(['images', 'user'])
