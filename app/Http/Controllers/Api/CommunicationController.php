@@ -269,12 +269,15 @@ class CommunicationController extends Controller
     public function sendMessage(Request $request, string $chatId): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'message' => 'required|string|max:2000', // Changed from 'text' to 'message'
+            'message' => 'required|string|max:2000',
             'message_type' => 'in:text,image,file,offer,location',
-            'metadata' => 'nullable|array', // Changed from 'json' to 'array'
+            'metadata' => 'nullable|array',
             'reply_to_id' => 'nullable|exists:chat_messages,id',
-            'sender_id' => 'required|string',
+            'sender_id' => 'required|string|min:1', // Add minimum length
             'session_id' => 'nullable|string',
+        ], [
+            'sender_id.required' => 'User authentication failed - please log in again',
+            'sender_id.min' => 'Invalid user ID provided',
         ]);
 
         if ($validator->fails()) {
