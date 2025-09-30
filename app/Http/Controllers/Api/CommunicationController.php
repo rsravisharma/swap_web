@@ -240,16 +240,16 @@ class CommunicationController extends Controller
                 ->orderBy('created_at', 'desc')
                 ->paginate($limit, ['*'], 'page', $page);
 
-            $formattedMessages = $messages->items()->map(function ($message) {
+            $formattedMessages = collect($messages->items())->map(function ($message) {
                 return [
                     'id' => $message->id,
                     'sender_id' => $message->sender_id,
                     'sender' => $message->sender,
                     'message' => $message->message,
-                    'message_type' => $message->message_type,
-                    'status' => $message->status,
+                    'message_type' => $message->message_type ?? 'text',
+                    'status' => $message->status ?? 'sent',
                     'created_at' => $message->created_at,
-                    'metadata' => $message->metadata,
+                    'metadata' => $message->metadata ?? [],
                 ];
             });
 
@@ -266,10 +266,18 @@ class CommunicationController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
+            \Log::error('Failed to retrieve chat messages', [
+                'chat_id' => $chatId,
+                'user_id' => Auth::id(),
+                'error' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve messages',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
