@@ -219,7 +219,7 @@ class CommunicationController extends Controller
             $page = $request->query('page', 1);
             $limit = $request->query('limit', 50);
 
-            // Verify user access to chat
+            // Verify chat access
             $chat = ChatSession::where('id', $chatId)
                 ->where(function ($query) use ($currentUserId) {
                     $query->where('user_one_id', $currentUserId)
@@ -230,29 +230,45 @@ class CommunicationController extends Controller
             if (!$chat) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Chat not found or access denied'
+                    'message' => 'Chat not found'
                 ], 404);
             }
 
+            // Get messages
             $messages = ChatMessage::where('session_id', $chatId)
-                ->with(['sender:id,name,profile_image'])
+                ->with('sender:id,name,profile_image')
                 ->orderBy('created_at', 'desc')
                 ->paginate($limit, ['*'], 'page', $page);
 
+            $formattedMessages = $messages->items()->map(function ($message) {
+                return [
+                    'id' => $message->id,
+                    'sender_id' => $message->sender_id,
+                    'sender' => $message->sender,
+                    'message' => $message->message,
+                    'message_type' => $message->message_type,
+                    'status' => $message->status,
+                    'created_at' => $message->created_at,
+                    'metadata' => $message->metadata,
+                ];
+            });
+
             return response()->json([
                 'success' => true,
-                'data' => $messages->items(),
-                'pagination' => [
-                    'current_page' => $messages->currentPage(),
-                    'last_page' => $messages->lastPage(),
-                    'total' => $messages->total(),
-                    'has_more' => $messages->hasMorePages(),
+                'data' => [
+                    'messages' => $formattedMessages,
+                    'pagination' => [
+                        'current_page' => $messages->currentPage(),
+                        'last_page' => $messages->lastPage(),
+                        'total' => $messages->total(),
+                        'has_more' => $messages->hasMorePages(),
+                    ]
                 ]
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to fetch messages',
+                'message' => 'Failed to retrieve messages',
                 'error' => $e->getMessage()
             ], 500);
         }
