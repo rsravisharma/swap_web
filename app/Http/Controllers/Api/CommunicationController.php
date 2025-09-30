@@ -382,8 +382,28 @@ class CommunicationController extends Controller
             // Load sender relationship
             $message->load('sender:id,name,profile_image');
 
+            \Log::info('About to broadcast message', [
+                'message_id' => $message->id,
+                'session_id' => $chatId,
+                'broadcast_driver' => config('broadcasting.default'),
+                'ably_configured' => config('services.ably.key') ? 'yes' : 'no'
+            ]);
+
             // Broadcast to Ably + trigger synchronous event listener
-            broadcast(new MessageSentEvent($message, $chat))->toOthers();
+            try {
+                broadcast(new MessageSentEvent($message, $chat))->toOthers();
+                \Log::info('Broadcast completed', [
+                    'message_id' => $message->id,
+                    'result' => 'success'
+                ]);
+            } catch (\Exception $e) {
+                \Log::error('Broadcast failed', [
+                    'message_id' => $message->id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+                // Don't fail the request if broadcast fails
+            }
 
             // ADD: Push notification (from ChatController)
             $this->sendPushNotification($chat, $message);
