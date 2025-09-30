@@ -3,6 +3,9 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Services\EnhancedGeocodingService;
+use Illuminate\Support\Facades\Auth;
+use App\Models\ChatSession;
+use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Api\{
     AuthController,
     AblyAuthController,
@@ -189,8 +192,65 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('upload/chat-files', [CommunicationController::class, 'uploadChatFiles']);
     Route::get('ping', [CommunicationController::class, 'ping']);
 
-    Route::post('/broadcasting/auth', function () {
-        return response()->json(['error' => 'Use Sanctum auth for broadcasting'], 401);
+    Route::post('/broadcasting/auth', function (Request $request) {
+        try {
+            $currentUserId = Auth::id();
+
+            if (!$currentUserId) {
+                return response()->json(['error' => 'Unauthorized'], 401);
+            }
+
+            // Get the channel name from request
+            $channelName = $request->input('channel_name');
+
+            if (!$channelName) {
+                return response()->json(['error' => 'Channel name required'], 400);
+            }
+
+            // Verify user has access to this channel
+            if (preg_match('/^private-chat\.(\d+)$/', $channelName, $matches)) {
+                $chatId = $matches[1];
+
+                // Check if user is participant in this chat
+                $hasAccess = ChatSession::where('id', $chatId)
+                    ->where(function ($query) use ($currentUserId) {
+                        $query->where('user_one_id', $currentUserId)
+                            ->orWhere('user_two_id', $currentUserId);
+                    })
+                    ->exists();
+
+                if (!$hasAccess) {
+                    return response()->json(['error' => 'Channel access denied'], 403);
+                }
+            }
+
+            // Generate Ably token with channel-specific permissions
+            $ably = new \Ably\AblyRest([
+                'key' => config('services.ably.key')
+            ]);
+
+            $tokenDetails = $ably->auth->requestToken([
+                'clientId' => (string) $currentUserId,
+                'capability' => [
+                    $channelName => ["*"], // Grant access to specific channel
+                ],
+                'ttl' => 3600000 // 1 hour
+            ]);
+
+            return response()->json([
+                'token' => $tokenDetails->token,
+                'expires' => $tokenDetails->expires,
+                'clientId' => $tokenDetails->clientId,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Broadcasting auth failed', [
+                'user_id' => Auth::id(),
+                'channel' => $request->input('channel_name'),
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Authentication failed'], 500);
+        }
     })->middleware('auth:sanctum');
 
 

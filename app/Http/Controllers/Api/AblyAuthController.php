@@ -18,85 +18,54 @@ class AblyAuthController extends Controller
     public function getAblyToken(Request $request): JsonResponse
     {
         try {
-            $user = Auth::user();
-            
-            if (!$user) {
+            $currentUserId = Auth::id();
+
+            if (!$currentUserId) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthorized'
+                    'message' => 'Authentication required'
                 ], 401);
             }
 
-            // Get Ably API key from environment - FIXED CONFIG KEY
-            $ablyApiKey = config('services.ably.key');
-            
-            if (!$ablyApiKey) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Ably API key not configured'
-                ], 500);
-            }
+            $ably = new \Ably\AblyRest([
+                'key' => config('ably.api_key')
+            ]);
 
-            // Split API key into key name and secret
-            $apiKeyCredentials = explode(':', $ablyApiKey);
-            
-            if (count($apiKeyCredentials) !== 2) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invalid Ably API key format'
-                ], 500);
-            }
-
-            $keyName = $apiKeyCredentials[0];
-            $keySecret = $apiKeyCredentials[1];
-
-            // Create JWT payload
-            $currentTime = time();
-            $payload = [
-                'iat' => $currentTime,
-                'exp' => $currentTime + 3600, // 1 hour expiry
-                'x-ably-capability' => json_encode([
-                    "user:{$user->id}:*" => ["*"], // User-specific channels
-                    "private-chat.*" => ["subscribe", "publish"], // Chat channels
-                ]),
-                'x-ably-clientId' => (string) $user->id, // Set client ID to user ID
-            ];
-
-            // Generate JWT token
-            $jwt = JWT::encode(
-                $payload,
-                $keySecret,
-                'HS256',
-                $keyName
-            );
+            // 🔥 FIX: Generate token with proper channel permissions
+            $tokenDetails = $ably->auth->requestToken([
+                'clientId' => (string) $currentUserId,
+                'capability' => [
+                    // Allow access to user's private channels
+                    "private-chat.*" => ["*"], // All operations on all private chat channels
+                    "presence-chat.*" => ["*"], // All operations on presence channels
+                    "typing.*" => ["*"], // Typing indicators
+                ],
+                'ttl' => 3600000 // 1 hour in milliseconds
+            ]);
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'token' => $jwt,
-                    'client_id' => (string) $user->id,
-                    'expires_at' => $currentTime + 3600,
-                    'channels' => [
-                        "user:{$user->id}:messages",
-                        "user:{$user->id}:typing",
-                        "user:{$user->id}:offers"
-                    ]
+                    'token' => $tokenDetails->token,
+                    'expires_at' => $tokenDetails->expires / 1000, // Convert to seconds
+                    'client_id' => $tokenDetails->clientId,
+                    'capability' => $tokenDetails->capability,
                 ]
             ]);
-
         } catch (\Exception $e) {
-            \Log::error('Ably token generation failed', [
-                'user_id' => $user->id ?? null,
+            \Log::error('Failed to generate Ably token', [
+                'user_id' => Auth::id(),
                 'error' => $e->getMessage()
             ]);
-            
+
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate Ably token',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'message' => 'Failed to generate authentication token',
+                'error' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
+
 
     /**
      * Get Ably configuration for client
@@ -106,7 +75,7 @@ class AblyAuthController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             if (!$user) {
                 return response()->json([
                     'success' => false,
@@ -126,13 +95,12 @@ class AblyAuthController extends Controller
                     ]
                 ]
             ]);
-
         } catch (\Exception $e) {
             \Log::error('Ably config failed', [
                 'user_id' => $user->id ?? null,
                 'error' => $e->getMessage()
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to get Ably config',
