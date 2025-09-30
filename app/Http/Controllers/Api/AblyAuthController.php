@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
 
 class AblyAuthController extends Controller
 {
@@ -26,8 +27,8 @@ class AblyAuthController extends Controller
                 ], 401);
             }
 
-            // Get Ably API key from environment
-            $ablyApiKey = config('services.ably.api_key');
+            // Get Ably API key from environment - FIXED CONFIG KEY
+            $ablyApiKey = config('services.ably.key');
             
             if (!$ablyApiKey) {
                 return response()->json([
@@ -84,10 +85,15 @@ class AblyAuthController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            \Log::error('Ably token generation failed', [
+                'user_id' => $user->id ?? null,
+                'error' => $e->getMessage()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to generate Ably token',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
@@ -122,10 +128,15 @@ class AblyAuthController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            \Log::error('Ably config failed', [
+                'user_id' => $user->id ?? null,
+                'error' => $e->getMessage()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to get Ably config',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
