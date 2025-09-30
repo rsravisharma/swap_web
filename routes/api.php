@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Services\EnhancedGeocodingService;
 use App\Http\Controllers\Api\{
     AuthController,
+    AblyAuthController,
     HomeController,
     CategoryController,
     ItemSearchController,
