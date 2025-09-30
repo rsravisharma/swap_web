@@ -269,10 +269,12 @@ class CommunicationController extends Controller
     public function sendMessage(Request $request, string $chatId): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'text' => 'required|string|max:2000',
+            'message' => 'required|string|max:2000', // Changed from 'text' to 'message'
             'message_type' => 'in:text,image,file,offer,location',
-            'metadata' => 'nullable|json',
+            'metadata' => 'nullable|array', // Changed from 'json' to 'array'
             'reply_to_id' => 'nullable|exists:chat_messages,id',
+            'sender_id' => 'required|string',
+            'session_id' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -312,7 +314,7 @@ class CommunicationController extends Controller
             $message = ChatMessage::create([
                 'session_id' => $chatId,
                 'sender_id' => $currentUserId,
-                'message' => $request->text,
+                'message' => $request->message,
                 'message_type' => $request->message_type ?? 'text',
                 'metadata' => $request->metadata ? json_decode($request->metadata, true) : null,
                 'reply_to_id' => $request->reply_to_id,
@@ -321,7 +323,7 @@ class CommunicationController extends Controller
 
             // Update chat last message
             $chat->update([
-                'last_message' => $request->text,
+                'last_message' => $request->message,
                 'last_message_at' => now(),
             ]);
 
