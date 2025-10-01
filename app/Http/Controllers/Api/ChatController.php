@@ -287,9 +287,20 @@ class ChatController extends Controller
                 $query->where('user_one_id', $currentUserId)
                     ->orWhere('user_two_id', $currentUserId);
             })
-                ->with(['userOne', 'userTwo', 'item'])
+                ->with(['userOne', 'userTwo', 'item:id,title'])
                 ->orderBy('last_message_at', 'desc')
                 ->paginate($perPage, ['*'], 'page', $page);
+
+            // Explicitly append the accessor to each user
+            $sessions->getCollection()->transform(function ($session) {
+                if ($session->userOne) {
+                    $session->userOne->append('full_profile_image_url');
+                }
+                if ($session->userTwo) {
+                    $session->userTwo->append('full_profile_image_url');
+                }
+                return $session;
+            });
 
             return response()->json([
                 'success' => true,
@@ -312,6 +323,7 @@ class ChatController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Mark session as read
@@ -437,5 +449,4 @@ class ChatController extends Controller
     /**
      * Send push notification to other participant
      */
-   
 }
