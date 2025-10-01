@@ -18,6 +18,224 @@ use Illuminate\Support\Facades\DB;
 
 class OfferController extends Controller
 {
+
+     /**
+     * Get offers
+     * GET /offers
+     */
+    public function getOffers(): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            
+            // Get both sent and received offers
+            $offers = Offer::where(function ($query) use ($user) {
+                $query->where('sender_id', $user->id)
+                      ->orWhere('receiver_id', $user->id);
+            })
+            ->with(['item.user', 'sender', 'receiver'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $offers
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch offers',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Send offer
+     * POST /offers
+     */
+    public function sendOffer(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'item_id' => 'required|integer|exists:items,id',
+            'amount' => 'required|numeric|min:1',
+            'message' => 'nullable|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $user = Auth::user();
+            $item = Item::find($request->item_id);
+
+            // Check if user is trying to offer on their own item
+            if ($item->user_id === $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot make offer on your own item'
+                ], 400);
+            }
+
+            $offer = Offer::create([
+                'sender_id' => $user->id,
+                'receiver_id' => $item->user_id,
+                'item_id' => $request->item_id,
+                'amount' => $request->amount,
+                'message' => $request->message,
+                'status' => 'pending'
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => $offer->load(['item', 'sender']),
+                'message' => 'Offer sent successfully'
+            ], 201);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to send offer',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Accept offer
+     * PUT /offers/{offerId}/accept
+     */
+    public function acceptOffer(string $offerId): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            $offer = Offer::where('id', $offerId)
+                ->where('receiver_id', $user->id)
+                ->where('status', 'pending')
+                ->first();
+
+            if (!$offer) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Offer not found or cannot be accepted'
+                ], 404);
+            }
+
+            $offer->update([
+                'status' => 'accepted',
+                'accepted_at' => now()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Offer accepted successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to accept offer',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Reject offer
+     * PUT /offers/{offerId}/reject
+     */
+    public function rejectOffer(Request $request, string $offerId): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'reason' => 'required|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $user = Auth::user();
+            $offer = Offer::where('id', $offerId)
+                ->where('receiver_id', $user->id)
+                ->where('status', 'pending')
+                ->first();
+
+            if (!$offer) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Offer not found or cannot be rejected'
+                ], 404);
+            }
+
+            $offer->update([
+                'status' => 'rejected',
+                'rejected_at' => now(),
+                'rejection_reason' => $request->reason
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Offer rejected successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to reject offer',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Cancel offer
+     * DELETE /offers/{offerId}
+     */
+    public function cancelOffer(string $offerId): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            $offer = Offer::where('id', $offerId)
+                ->where('sender_id', $user->id)
+                ->where('status', 'pending')
+                ->first();
+
+            if (!$offer) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Offer not found or cannot be cancelled'
+                ], 404);
+            }
+
+            $offer->update([
+                'status' => 'cancelled',
+                'cancelled_at' => now()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Offer cancelled successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to cancel offer',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+
     /**
      * Get basket items
      * GET /basket/items
@@ -458,221 +676,7 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Get offers
-     * GET /offers
-     */
-    public function getOffers(): JsonResponse
-    {
-        try {
-            $user = Auth::user();
-            
-            // Get both sent and received offers
-            $offers = Offer::where(function ($query) use ($user) {
-                $query->where('sender_id', $user->id)
-                      ->orWhere('receiver_id', $user->id);
-            })
-            ->with(['item', 'sender', 'receiver'])
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-            return response()->json([
-                'success' => true,
-                'data' => $offers
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to fetch offers',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Send offer
-     * POST /offers
-     */
-    public function sendOffer(Request $request): JsonResponse
-    {
-        $validator = Validator::make($request->all(), [
-            'item_id' => 'required|integer|exists:items,id',
-            'amount' => 'required|numeric|min:1',
-            'message' => 'nullable|string|max:500',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        try {
-            $user = Auth::user();
-            $item = Item::find($request->item_id);
-
-            // Check if user is trying to offer on their own item
-            if ($item->user_id === $user->id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cannot make offer on your own item'
-                ], 400);
-            }
-
-            $offer = Offer::create([
-                'sender_id' => $user->id,
-                'receiver_id' => $item->user_id,
-                'item_id' => $request->item_id,
-                'amount' => $request->amount,
-                'message' => $request->message,
-                'status' => 'pending'
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'data' => $offer->load(['item', 'sender']),
-                'message' => 'Offer sent successfully'
-            ], 201);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to send offer',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Accept offer
-     * PUT /offers/{offerId}/accept
-     */
-    public function acceptOffer(string $offerId): JsonResponse
-    {
-        try {
-            $user = Auth::user();
-            $offer = Offer::where('id', $offerId)
-                ->where('receiver_id', $user->id)
-                ->where('status', 'pending')
-                ->first();
-
-            if (!$offer) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Offer not found or cannot be accepted'
-                ], 404);
-            }
-
-            $offer->update([
-                'status' => 'accepted',
-                'accepted_at' => now()
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Offer accepted successfully'
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to accept offer',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Reject offer
-     * PUT /offers/{offerId}/reject
-     */
-    public function rejectOffer(Request $request, string $offerId): JsonResponse
-    {
-        $validator = Validator::make($request->all(), [
-            'reason' => 'required|string|max:500',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        try {
-            $user = Auth::user();
-            $offer = Offer::where('id', $offerId)
-                ->where('receiver_id', $user->id)
-                ->where('status', 'pending')
-                ->first();
-
-            if (!$offer) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Offer not found or cannot be rejected'
-                ], 404);
-            }
-
-            $offer->update([
-                'status' => 'rejected',
-                'rejected_at' => now(),
-                'rejection_reason' => $request->reason
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Offer rejected successfully'
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to reject offer',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Cancel offer
-     * DELETE /offers/{offerId}
-     */
-    public function cancelOffer(string $offerId): JsonResponse
-    {
-        try {
-            $user = Auth::user();
-            $offer = Offer::where('id', $offerId)
-                ->where('sender_id', $user->id)
-                ->where('status', 'pending')
-                ->first();
-
-            if (!$offer) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Offer not found or cannot be cancelled'
-                ], 404);
-            }
-
-            $offer->update([
-                'status' => 'cancelled',
-                'cancelled_at' => now()
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Offer cancelled successfully'
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to cancel offer',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
+   
 
     /**
      * Get study material requests
