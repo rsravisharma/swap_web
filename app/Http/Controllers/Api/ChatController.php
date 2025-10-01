@@ -287,25 +287,31 @@ class ChatController extends Controller
                 $query->where('user_one_id', $currentUserId)
                     ->orWhere('user_two_id', $currentUserId);
             })
-                ->with(['userOne', 'userTwo', 'item:id,title'])
+                ->with(['userOne:id,name,profile_image', 'userTwo:id,name,profile_image', 'item:id,title'])
                 ->orderBy('last_message_at', 'desc')
                 ->paginate($perPage, ['*'], 'page', $page);
 
-            // Explicitly append the accessor to each user
-            $sessions->getCollection()->transform(function ($session) {
+            // Transform the data to include full image URLs
+            $transformedSessions = $sessions->getCollection()->map(function ($session) {
+                $sessionArray = $session->toArray();
+
+                // Add full_profile_image_url to user_one
                 if ($session->userOne) {
-                    $session->userOne->append('full_profile_image_url');
+                    $sessionArray['user_one']['full_profile_image_url'] = $this->getFullImageUrl($session->userOne->profile_image);
                 }
+
+                // Add full_profile_image_url to user_two
                 if ($session->userTwo) {
-                    $session->userTwo->append('full_profile_image_url');
+                    $sessionArray['user_two']['full_profile_image_url'] = $this->getFullImageUrl($session->userTwo->profile_image);
                 }
-                return $session;
+
+                return $sessionArray;
             });
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'sessions' => $sessions->items(),
+                    'sessions' => $transformedSessions,
                     'pagination' => [
                         'current_page' => $sessions->currentPage(),
                         'last_page' => $sessions->lastPage(),
@@ -323,6 +329,23 @@ class ChatController extends Controller
             ], 500);
         }
     }
+
+    // Helper method
+    private function getFullImageUrl($imagePath)
+    {
+        if (!$imagePath) {
+            return null;
+        }
+
+        // Check if it's already a full URL
+        if (str_starts_with($imagePath, 'http://') || str_starts_with($imagePath, 'https://')) {
+            return $imagePath;
+        }
+
+        // If it's a relative path, create full URL
+        return asset('storage/' . $imagePath);
+    }
+
 
 
     /**
