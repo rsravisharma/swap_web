@@ -41,7 +41,7 @@
         <div class="row">
             <div class="col-lg-8 mx-auto">
                 <div class="last-updated">
-                    <strong>Last Updated:</strong> October 2, 2024
+                    <strong>Last Updated:</strong> October 2, 2025
                 </div>
 
                 <section class="mb-5">
@@ -166,9 +166,7 @@
                     <div class="bg-light p-4 rounded">
                         <p class="mb-2">If you have questions about this privacy policy or our data practices, please contact us:</p>
                         <ul class="list-unstyled mb-0">
-                            <li><i class="bi bi-envelope text-primary me-2"></i><strong>Email:</strong> privacy@swapapp.com</li>
-                            <li><i class="bi bi-phone text-success me-2"></i><strong>Phone:</strong> +1 (555) 123-4567</li>
-                            <li><i class="bi bi-geo-alt text-danger me-2"></i><strong>Address:</strong> [Your Business Address]</li>
+                            <li><i class="bi bi-envelope text-primary me-2"></i><strong>Email:</strong> swap.cubebitz@gmail.com</li>
                         </ul>
                     </div>
                 </section>
