@@ -3,7 +3,8 @@
 use Illuminate\Support\Facades\Route;
 use App\Models\ItemImage;
 use App\Http\Controllers\{
-    EmailVerificationController
+    EmailVerificationController,
+    DeletionRequestController,
 };
 
 Route::get('/', function () {
@@ -37,8 +38,9 @@ Route::post('/email/verify-otp', [EmailVerificationController::class, 'verifyOtp
 Route::get('/privacy-policy', function () {
     return view('frontend.legal_support.privacy');
 });
+
+Route::post('/deletion-request', 'DeletionRequestController@index');
 Route::get('/termsAndConditions', 'SupportController@termsAndConditions');
-Route::post('/agreeTermsAndCondition', 'SupportController@agreeTermsAndCondition');
 Route::post('/reportIssue', 'SupportController@reportIssue');
 Route::get('/faq', 'SupportController@faq');
 Route::post('/contactUs', 'SupportController@contactUs');
