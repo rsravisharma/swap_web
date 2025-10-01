@@ -99,21 +99,17 @@ class ProfileController extends Controller
     public function updateProfile(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'name' => 'sometimes|string|max:255',
+            'name' => 'sometimes|string|max:255|min:2',
             'email' => 'sometimes|email|max:255|unique:users,email,' . Auth::id(),
-            'phone' => 'sometimes|string|max:20',
-            'university' => 'sometimes|string|max:255',
-            'course' => 'sometimes|string|max:255',
-            'semester' => 'sometimes|string|max:50',
-            'bio' => 'sometimes|string|max:1000',
-            'profile_image' => 'sometimes|image|max:5120',
-            'date_of_birth' => 'sometimes|date',
-            'gender' => 'sometimes|string|in:male,female,other',
-            'city' => 'sometimes|string|max:255',
-            'state' => 'sometimes|string|max:255',
-            'country' => 'sometimes|string|max:255',
-            'postal_code' => 'sometimes|string|max:10',
-            'student_id' => 'sometimes|string|max:255'
+            'phone' => 'sometimes|string|max:20|regex:/^[0-9+\-\s()]*$/',
+            'bio' => 'sometimes|string|max:500', // Match frontend limit
+            'avatar' => 'sometimes|image|mimes:jpg,jpeg,png,webp|max:5120',
+        ], [
+            'name.min' => 'Name must be at least 2 characters long',
+            'phone.regex' => 'Please enter a valid phone number',
+            'bio.max' => 'Bio cannot exceed 500 characters',
+            'avatar.image' => 'Avatar must be an image file',
+            'avatar.mimes' => 'Avatar must be a JPG, JPEG, PNG, or WebP file',
         ]);
 
         if ($validator->fails()) {
@@ -129,13 +125,14 @@ class ProfileController extends Controller
             DB::beginTransaction();
 
             // Handle profile image upload
-            if ($request->hasFile('profile_image')) {
-                // Delete old profile image
+            if ($request->hasFile('profile_image') || $request->hasFile('avatar')) {
+                $file = $request->file('profile_image') ?? $request->file('avatar');
+
                 if ($user->profile_image) {
                     Storage::disk('public')->delete($user->profile_image);
                 }
 
-                $imagePath = $request->file('profile_image')->store('profile-images', 'public');
+                $imagePath = $file->store('profile-images', 'public');
                 $user->profile_image = $imagePath;
             }
 
@@ -154,7 +151,8 @@ class ProfileController extends Controller
                 'state',
                 'country',
                 'postal_code',
-                'student_id'
+                'student_id',
+                'is_student'
             ];
 
             foreach ($fillableFields as $field) {
@@ -178,6 +176,48 @@ class ProfileController extends Controller
                 'success' => false,
                 'message' => 'Failed to update profile',
                 'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function uploadAvatar(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'profile_image' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $user = Auth::user();
+
+            // Delete old image
+            if ($user->profile_image) {
+                Storage::disk('public')->delete($user->profile_image);
+            }
+
+            // Upload new image
+            $imagePath = $request->file('profile_image')->store('profile-images', 'public');
+            $user->profile_image = $imagePath;
+            $user->save();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'url' => Storage::disk('public')->url($imagePath),
+                    'path' => $imagePath
+                ],
+                'message' => 'Avatar uploaded successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to upload avatar'
             ], 500);
         }
     }

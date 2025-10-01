@@ -37,6 +37,7 @@ return new class extends Migration
             $table->string('course', 255)->nullable();
             $table->string('semester', 50)->nullable();
             $table->string('student_id')->nullable();
+            $table->boolean('is_student')->default(false);
             $table->boolean('student_verified')->default(false);
             $table->string('student_id_document')->nullable(); // Path to uploaded student ID
 
