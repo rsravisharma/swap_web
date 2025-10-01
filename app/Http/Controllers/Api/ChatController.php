@@ -287,7 +287,7 @@ class ChatController extends Controller
                 $query->where('user_one_id', $currentUserId)
                     ->orWhere('user_two_id', $currentUserId);
             })
-                ->with(['userOne:id,name,full_profile_image_url', 'userTwo:id,name,full_profile_image_url', 'item:id,title,images'])
+                ->with(['userOne', 'userTwo', 'item'])
                 ->orderBy('last_message_at', 'desc')
                 ->paginate($perPage, ['*'], 'page', $page);
 
