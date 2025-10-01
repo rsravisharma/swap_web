@@ -39,7 +39,7 @@ Route::get('/privacy-policy', function () {
     return view('frontend.legal_support.privacy');
 });
 
-Route::post('/deletion-request', 'DeletionRequestController@index');
+Route::get('/deletion-request', 'DeletionRequestController@index');
 Route::get('/termsAndConditions', 'SupportController@termsAndConditions');
 Route::post('/reportIssue', 'SupportController@reportIssue');
 Route::get('/faq', 'SupportController@faq');
