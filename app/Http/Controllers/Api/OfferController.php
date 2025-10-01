@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\DB;
 class OfferController extends Controller
 {
 
-     /**
+    /**
      * Get offers
      * GET /offers
      */
@@ -27,21 +27,20 @@ class OfferController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Get both sent and received offers
             $offers = Offer::where(function ($query) use ($user) {
                 $query->where('sender_id', $user->id)
-                      ->orWhere('receiver_id', $user->id);
+                    ->orWhere('receiver_id', $user->id);
             })
-            ->with(['item.user', 'sender', 'receiver'])
-            ->orderBy('created_at', 'desc')
-            ->get();
+                ->with(['item.user', 'item.images', 'sender', 'receiver']) 
+                ->orderBy('created_at', 'desc')
+                ->get();
 
             return response()->json([
                 'success' => true,
                 'data' => $offers
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -50,6 +49,7 @@ class OfferController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Send offer
@@ -96,7 +96,6 @@ class OfferController extends Controller
                 'data' => $offer->load(['item', 'sender']),
                 'message' => 'Offer sent successfully'
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -135,7 +134,6 @@ class OfferController extends Controller
                 'success' => true,
                 'message' => 'Offer accepted successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -186,7 +184,6 @@ class OfferController extends Controller
                 'success' => true,
                 'message' => 'Offer rejected successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -225,7 +222,6 @@ class OfferController extends Controller
                 'success' => true,
                 'message' => 'Offer cancelled successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -252,7 +248,6 @@ class OfferController extends Controller
                 'success' => true,
                 'data' => $basketItems
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -287,7 +282,6 @@ class OfferController extends Controller
                 'success' => true,
                 'message' => 'Item removed from basket successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -327,7 +321,6 @@ class OfferController extends Controller
                 'success' => true,
                 'message' => "{$deletedCount} items removed from basket"
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -352,7 +345,6 @@ class OfferController extends Controller
                 'message' => 'Basket cleared successfully',
                 'deleted_count' => $deletedCount
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -402,7 +394,6 @@ class OfferController extends Controller
                 'success' => true,
                 'message' => 'Item moved to wishlist successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -425,7 +416,6 @@ class OfferController extends Controller
                 'success' => true,
                 'data' => $paymentMethods
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -448,7 +438,6 @@ class OfferController extends Controller
                 'success' => true,
                 'data' => $deliveryOptions
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -496,7 +485,7 @@ class OfferController extends Controller
             ]);
 
             $totalAmount = 0;
-            
+
             // Process order items
             foreach ($request->items as $itemData) {
                 $item = Item::find($itemData['item_id']);
@@ -507,7 +496,7 @@ class OfferController extends Controller
                         'price' => $item->price,
                         'total' => $item->price * $itemData['quantity']
                     ]);
-                    
+
                     $totalAmount += $item->price * $itemData['quantity'];
                 }
             }
@@ -524,7 +513,6 @@ class OfferController extends Controller
                 'data' => $order,
                 'message' => 'Order placed successfully'
             ], 201);
-
         } catch (\Exception $e) {
             DB::rollback();
             return response()->json([
@@ -552,7 +540,6 @@ class OfferController extends Controller
                 'success' => true,
                 'data' => $orders
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -586,7 +573,6 @@ class OfferController extends Controller
                 'success' => true,
                 'data' => $order
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -621,7 +607,6 @@ class OfferController extends Controller
                 'success' => true,
                 'data' => $trackingUpdates
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -666,7 +651,6 @@ class OfferController extends Controller
                 'success' => true,
                 'message' => 'Order cancelled successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -676,7 +660,7 @@ class OfferController extends Controller
         }
     }
 
-   
+
 
     /**
      * Get study material requests
@@ -694,7 +678,6 @@ class OfferController extends Controller
                 'success' => true,
                 'data' => $requests
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -729,7 +712,7 @@ class OfferController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             $studyRequest = StudyMaterialRequest::create([
                 'user_id' => $user->id,
                 'title' => $request->title,
@@ -747,7 +730,6 @@ class OfferController extends Controller
                 'data' => $studyRequest,
                 'message' => 'Study material request created successfully'
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -782,7 +764,6 @@ class OfferController extends Controller
                 'success' => true,
                 'message' => 'Study material request deleted successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -820,7 +801,6 @@ class OfferController extends Controller
                 'success' => true,
                 'message' => 'Request marked as fulfilled successfully'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -838,7 +818,7 @@ class OfferController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -848,7 +828,6 @@ class OfferController extends Controller
                     'location' => $user->location ?? ''
                 ]
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
