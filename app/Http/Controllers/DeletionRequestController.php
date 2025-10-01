@@ -54,11 +54,11 @@ class DeletionRequestController extends Controller
         $deletionRequest = DeletionRequest::where('verification_token', $token)->first();
 
         if (!$deletionRequest) {
-            return view('deletion-verification', ['status' => 'invalid']);
+            return view('frontend.legal_support.deletion-verification', ['status' => 'invalid']);
         }
 
         if ($deletionRequest->verified) {
-            return view('deletion-verification', ['status' => 'already_verified']);
+            return view('frontend.legal_support.deletion-verification', ['status' => 'already_verified']);
         }
 
         $deletionRequest->markAsVerified();
@@ -66,7 +66,7 @@ class DeletionRequestController extends Controller
         // Send notification to admin
         $this->notifyAdminOfVerifiedRequest($deletionRequest);
 
-        return view('deletion-verification', ['status' => 'verified']);
+        return view('frontend.legal_support.deletion-verification', ['status' => 'verified']);
     }
 
     private function sendVerificationEmail($deletionRequest)
@@ -105,6 +105,6 @@ class DeletionRequestController extends Controller
             return back()->with('error', 'No deletion request found for this email address.');
         }
 
-        return view('deletion-status', compact('deletionRequest'));
+        return view('frontend.legal_support.deletion-status', compact('deletionRequest'));
     }
 }

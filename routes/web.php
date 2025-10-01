@@ -39,7 +39,11 @@ Route::get('/privacy-policy', function () {
     return view('frontend.legal_support.privacy');
 });
 
-Route::get('/deletion-request', [DeletionRequestController::class, 'index']);
+Route::get('/deletion-request', [DeletionRequestController::class, 'index'])->name('deletion.index');
+Route::post('/deletion-request', [DeletionRequestController::class, 'store'])->name('deletion.store');
+Route::get('/deletion-request/verify/{token}', [DeletionRequestController::class, 'verify'])->name('deletion.verify');
+Route::post('/deletion-request/status', [DeletionRequestController::class, 'status'])->name('deletion.status');
+
 Route::get('/termsAndConditions', 'SupportController@termsAndConditions');
 Route::post('/reportIssue', 'SupportController@reportIssue');
 Route::get('/faq', 'SupportController@faq');
