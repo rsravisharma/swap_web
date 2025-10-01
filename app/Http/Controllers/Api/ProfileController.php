@@ -98,18 +98,44 @@ class ProfileController extends Controller
      */
     public function updateProfile(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'sometimes|string|max:255|min:2',
-            'email' => 'sometimes|email|max:255|unique:users,email,' . Auth::id(),
-            'phone' => 'sometimes|string|max:20|regex:/^[0-9+\-\s()]*$/',
-            'bio' => 'sometimes|string|max:500',
+        // Handle method override if sent from frontend
+        if ($request->has('_method') && $request->input('_method') === 'PUT') {
+            // This allows POST request to be treated as PUT for REST compliance
+        }
+
+        // Convert empty strings to null for proper validation
+        $data = $request->all();
+
+        // Remove _method if it exists
+        unset($data['_method']);
+
+        // Handle empty strings for optional fields
+        $optionalFields = ['phone', 'bio', 'university', 'course', 'semester'];
+        foreach ($optionalFields as $field) {
+            if (isset($data[$field]) && trim($data[$field]) === '') {
+                unset($data[$field]); // Remove empty fields completely
+            }
+        }
+
+        // Handle boolean conversion
+        if (isset($data['is_student'])) {
+            if (is_string($data['is_student'])) {
+                $data['is_student'] = filter_var($data['is_student'], FILTER_VALIDATE_BOOLEAN);
+            }
+        }
+
+        $validator = Validator::make($data, [
+            'name' => 'required|string|max:255|min:2',
+            'phone' => 'sometimes|nullable|string|max:20|regex:/^[0-9+\-\s()]*$/',
+            'bio' => 'sometimes|nullable|string|max:500',
             'avatar' => 'sometimes|image|mimes:jpg,jpeg,png,webp|max:5120',
             'profile_image' => 'sometimes|image|mimes:jpg,jpeg,png,webp|max:5120',
-            'university' => 'sometimes|string|max:255',
-            'course' => 'sometimes|string|max:255',
-            'semester' => 'sometimes|string|max:50',
+            'university' => 'sometimes|nullable|string|max:255',
+            'course' => 'sometimes|nullable|string|max:255',
+            'semester' => 'sometimes|nullable|string|max:50',
             'is_student' => 'sometimes|boolean',
         ], [
+            'name.required' => 'Name is required',
             'name.min' => 'Name must be at least 2 characters long',
             'phone.regex' => 'Please enter a valid phone number',
             'bio.max' => 'Bio cannot exceed 500 characters',
@@ -134,39 +160,36 @@ class ProfileController extends Controller
             if ($request->hasFile('profile_image') || $request->hasFile('avatar')) {
                 $file = $request->file('profile_image') ?? $request->file('avatar');
 
-                // Delete old image
                 if ($user->profile_image) {
                     Storage::disk('public')->delete($user->profile_image);
                 }
 
-                // Upload new image
                 $imagePath = $file->store('profile-images', 'public');
                 $user->profile_image = $imagePath;
             }
 
-            // Update user fields
+            // Update user fields - only update fields that are present in the request
             $fillableFields = [
                 'name',
-                'email',
                 'phone',
                 'university',
                 'course',
                 'semester',
                 'bio',
-                'date_of_birth',
-                'gender',
-                'city',
-                'state',
-                'country',
-                'postal_code',
-                'student_id',
                 'is_student'
             ];
 
             foreach ($fillableFields as $field) {
-                if ($request->has($field)) {
-                    $user->$field = $request->$field;
+                if (array_key_exists($field, $data)) {
+                    $user->$field = $data[$field];
                 }
+            }
+
+            // Special handling for academic fields when not a student
+            if (isset($data['is_student']) && !$data['is_student']) {
+                $user->university = null;
+                $user->course = null;
+                $user->semester = null;
             }
 
             $user->save();
@@ -192,6 +215,7 @@ class ProfileController extends Controller
             ], 500);
         }
     }
+
 
     public function getCurrentUserStats(): JsonResponse
     {
