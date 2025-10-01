@@ -31,6 +31,7 @@ class Offer extends Model
         'cancelled_at' => 'datetime'
     ];
 
+    // Relationships
     public function sender()
     {
         return $this->belongsTo(User::class, 'sender_id');
@@ -132,6 +133,17 @@ class Offer extends Model
         return $this->status === 'cancelled';
     }
 
+    // MISSING METHODS - ADD THESE
+    public function isInitialOffer()
+    {
+        return $this->offer_type === 'initial' && $this->parent_offer_id === null;
+    }
+
+    public function isCounterOffer()
+    {
+        return $this->offer_type === 'counter' && $this->parent_offer_id !== null;
+    }
+
     public function canBeAccepted($userId)
     {
         return $this->isPending() && $this->receiver_id === $userId;
@@ -142,12 +154,18 @@ class Offer extends Model
         return $this->isPending() && $this->sender_id === $userId;
     }
 
+    public function canBeCountered($userId)
+    {
+        return $this->isPending() && $this->receiver_id === $userId;
+    }
+
     public function getFormattedAmount()
     {
         return '₹' . number_format($this->amount, 2);
     }
-    
-     public function getCounterOffersCount()
+
+    // NEW: Counter offer helpers
+    public function getCounterOffersCount()
     {
         if ($this->isCounterOffer()) {
             return $this->rootOffer()->counterOffers()->count();
