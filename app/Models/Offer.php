@@ -13,9 +13,11 @@ class Offer extends Model
         'sender_id',
         'receiver_id',
         'item_id',
+        'parent_offer_id',
         'amount',
         'message',
         'status',
+        'offer_type',
         'accepted_at',
         'rejected_at',
         'cancelled_at',
@@ -44,6 +46,41 @@ class Offer extends Model
         return $this->belongsTo(Item::class);
     }
 
+    public function parentOffer()
+    {
+        return $this->belongsTo(Offer::class, 'parent_offer_id');
+    }
+
+    public function counterOffers()
+    {
+        return $this->hasMany(Offer::class, 'parent_offer_id')->orderBy('created_at', 'desc');
+    }
+
+    public function latestCounterOffer()
+    {
+        return $this->hasOne(Offer::class, 'parent_offer_id')->latest();
+    }
+
+    // Get the entire offer chain (original + all counters)
+    public function offerChain()
+    {
+        if ($this->parent_offer_id) {
+            return $this->parentOffer->offerChain();
+        }
+        
+        return $this->counterOffers()->with('counterOffers');
+    }
+
+    // Get the root/original offer
+    public function rootOffer()
+    {
+        if ($this->parent_offer_id) {
+            return $this->parentOffer->rootOffer();
+        }
+        
+        return $this;
+    }
+
     // Scopes
     public function scopePending($query)
     {
@@ -61,6 +98,17 @@ class Offer extends Model
             $q->where('sender_id', $userId)
                 ->orWhere('receiver_id', $userId);
         });
+    }
+
+    // NEW: Counter offer specific scopes
+    public function scopeInitialOffers($query)
+    {
+        return $query->where('offer_type', 'initial')->whereNull('parent_offer_id');
+    }
+
+    public function scopeCounterOffers($query)
+    {
+        return $query->where('offer_type', 'counter')->whereNotNull('parent_offer_id');
     }
 
     // Helper methods
@@ -97,5 +145,28 @@ class Offer extends Model
     public function getFormattedAmount()
     {
         return '₹' . number_format($this->amount, 2);
+    }
+    
+     public function getCounterOffersCount()
+    {
+        if ($this->isCounterOffer()) {
+            return $this->rootOffer()->counterOffers()->count();
+        }
+        
+        return $this->counterOffers()->count();
+    }
+
+    public function getOfferSequenceNumber()
+    {
+        if ($this->isInitialOffer()) {
+            return 1;
+        }
+        
+        $rootOffer = $this->rootOffer();
+        $allOffers = collect([$rootOffer])->merge($rootOffer->counterOffers);
+        
+        return $allOffers->search(function ($offer) {
+            return $offer->id === $this->id;
+        }) + 1;
     }
 }

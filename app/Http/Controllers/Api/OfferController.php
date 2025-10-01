@@ -33,7 +33,14 @@ class OfferController extends Controller
                 $query->where('sender_id', $user->id)
                     ->orWhere('receiver_id', $user->id);
             })
-                ->with(['item.user', 'item.images', 'sender', 'receiver']) 
+                ->with([
+                    'item.user',
+                    'item.images',
+                    'sender',
+                    'receiver',
+                    'parentOffer.sender',
+                    'parentOffer.receiver'
+                ])
                 ->orderBy('created_at', 'desc')
                 ->get();
 
@@ -51,6 +58,7 @@ class OfferController extends Controller
     }
 
 
+
     /**
      * Send offer
      * POST /offers
@@ -61,6 +69,7 @@ class OfferController extends Controller
             'item_id' => 'required|integer|exists:items,id',
             'amount' => 'required|numeric|min:1',
             'message' => 'nullable|string|max:500',
+            'parent_offer_id' => 'nullable|integer|exists:offers,id', // NEW: For counter offers
         ]);
 
         if ($validator->fails()) {
@@ -82,24 +91,127 @@ class OfferController extends Controller
                 ], 400);
             }
 
+            // NEW: Determine if this is a counter offer
+            $isCounterOffer = $request->filled('parent_offer_id');
+            $receiverId = $item->user_id;
+
+            // NEW: If it's a counter offer, validate parent offer and swap sender/receiver
+            if ($isCounterOffer) {
+                $parentOffer = Offer::find($request->parent_offer_id);
+                if (!$parentOffer || !$parentOffer->isPending()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Invalid parent offer for counter offer'
+                    ], 400);
+                }
+
+                // For counter offers, the receiver becomes the original sender
+                $receiverId = $parentOffer->sender_id;
+            }
+
             $offer = Offer::create([
                 'sender_id' => $user->id,
-                'receiver_id' => $item->user_id,
+                'receiver_id' => $receiverId,
                 'item_id' => $request->item_id,
+                'parent_offer_id' => $request->parent_offer_id, // NEW
                 'amount' => $request->amount,
                 'message' => $request->message,
-                'status' => 'pending'
+                'status' => 'pending',
+                'offer_type' => $isCounterOffer ? 'counter' : 'initial' // NEW
             ]);
 
             return response()->json([
                 'success' => true,
-                'data' => $offer->load(['item', 'sender']),
-                'message' => 'Offer sent successfully'
+                'data' => $offer->load(['item', 'sender', 'parentOffer']),
+                'message' => $isCounterOffer ? 'Counter offer sent successfully' : 'Offer sent successfully'
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to send offer',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+
+    public function sendCounterOffer(Request $request, string $offerId): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'amount' => 'required|numeric|min:1',
+            'message' => 'nullable|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $user = Auth::user();
+
+            // Find the original offer
+            $originalOffer = Offer::with(['item', 'sender', 'receiver'])
+                ->findOrFail($offerId);
+
+            // Validate that user can send counter offer
+            if ($originalOffer->receiver_id !== $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You can only counter offers made to you'
+                ], 403);
+            }
+
+            if (!$originalOffer->isPending()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Can only counter pending offers'
+                ], 400);
+            }
+
+            // Get the root offer (in case this is already a counter offer)
+            $rootOffer = $originalOffer->rootOffer();
+
+            DB::beginTransaction();
+
+            try {
+                // Mark the original offer as rejected (since we're countering)
+                $originalOffer->update([
+                    'status' => 'rejected',
+                    'rejected_at' => now(),
+                    'rejection_reason' => 'Counter offer made'
+                ]);
+
+                // Create the counter offer
+                // Note: sender and receiver are swapped for counter offers
+                $counterOffer = Offer::create([
+                    'sender_id' => $user->id,  // Current user becomes sender
+                    'receiver_id' => $originalOffer->sender_id,  // Original sender becomes receiver
+                    'item_id' => $rootOffer->item_id,
+                    'parent_offer_id' => $rootOffer->id,  // Link to root offer
+                    'amount' => $request->amount,
+                    'message' => $request->message,
+                    'status' => 'pending',
+                    'offer_type' => 'counter'
+                ]);
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $counterOffer->load(['item', 'sender', 'receiver', 'parentOffer']),
+                    'message' => 'Counter offer sent successfully'
+                ], 201);
+            } catch (\Exception $e) {
+                DB::rollback();
+                throw $e;
+            }
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to send counter offer',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -113,7 +225,8 @@ class OfferController extends Controller
     {
         try {
             $user = Auth::user();
-            $offer = Offer::where('id', $offerId)
+            $offer = Offer::with(['parentOffer', 'counterOffers'])
+                ->where('id', $offerId)
                 ->where('receiver_id', $user->id)
                 ->where('status', 'pending')
                 ->first();
@@ -125,15 +238,49 @@ class OfferController extends Controller
                 ], 404);
             }
 
-            $offer->update([
-                'status' => 'accepted',
-                'accepted_at' => now()
-            ]);
+            // NEW: Use database transaction for offer chain management
+            DB::beginTransaction();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Offer accepted successfully'
-            ]);
+            try {
+                // Accept the current offer
+                $offer->update([
+                    'status' => 'accepted',
+                    'accepted_at' => now()
+                ]);
+
+                // NEW: If this is a counter offer, reject all other pending offers in the chain
+                $rootOffer = $offer->isCounterOffer() ? $offer->parentOffer : $offer;
+
+                if ($rootOffer) {
+                    // Reject all other pending offers for this item from the same chain
+                    Offer::where('item_id', $offer->item_id)
+                        ->where('id', '!=', $offer->id)
+                        ->where(function ($query) use ($rootOffer) {
+                            $query->where('id', $rootOffer->id)
+                                ->orWhere('parent_offer_id', $rootOffer->id);
+                        })
+                        ->where('status', 'pending')
+                        ->update([
+                            'status' => 'rejected',
+                            'rejected_at' => now(),
+                            'rejection_reason' => 'Another offer was accepted'
+                        ]);
+                }
+
+                // NEW: Mark the item as sold/reserved (optional)
+                // $offer->item->update(['status' => 'sold']);
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Offer accepted successfully',
+                    'data' => $offer->fresh(['item', 'sender', 'receiver'])
+                ]);
+            } catch (\Exception $e) {
+                DB::rollback();
+                throw $e;
+            }
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -143,6 +290,7 @@ class OfferController extends Controller
         }
     }
 
+
     /**
      * Reject offer
      * PUT /offers/{offerId}/reject
@@ -150,7 +298,7 @@ class OfferController extends Controller
     public function rejectOffer(Request $request, string $offerId): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'reason' => 'required|string|max:500',
+            'reason' => 'nullable|string|max:500', // CHANGED: Made optional
         ]);
 
         if ($validator->fails()) {
@@ -162,7 +310,8 @@ class OfferController extends Controller
 
         try {
             $user = Auth::user();
-            $offer = Offer::where('id', $offerId)
+            $offer = Offer::with('parentOffer')
+                ->where('id', $offerId)
                 ->where('receiver_id', $user->id)
                 ->where('status', 'pending')
                 ->first();
@@ -177,12 +326,13 @@ class OfferController extends Controller
             $offer->update([
                 'status' => 'rejected',
                 'rejected_at' => now(),
-                'rejection_reason' => $request->reason
+                'rejection_reason' => $request->reason ?? 'Offer rejected' // NEW: Default reason
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Offer rejected successfully'
+                'message' => 'Offer rejected successfully',
+                'data' => $offer->fresh()
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -193,6 +343,7 @@ class OfferController extends Controller
         }
     }
 
+
     /**
      * Cancel offer
      * DELETE /offers/{offerId}
@@ -201,7 +352,8 @@ class OfferController extends Controller
     {
         try {
             $user = Auth::user();
-            $offer = Offer::where('id', $offerId)
+            $offer = Offer::with(['counterOffers'])
+                ->where('id', $offerId)
                 ->where('sender_id', $user->id)
                 ->where('status', 'pending')
                 ->first();
@@ -213,15 +365,37 @@ class OfferController extends Controller
                 ], 404);
             }
 
-            $offer->update([
-                'status' => 'cancelled',
-                'cancelled_at' => now()
-            ]);
+            // NEW: Use transaction to handle cascading cancellations
+            DB::beginTransaction();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Offer cancelled successfully'
-            ]);
+            try {
+                // Cancel the current offer
+                $offer->update([
+                    'status' => 'cancelled',
+                    'cancelled_at' => now()
+                ]);
+
+                // NEW: If this is an initial offer, cancel all pending counter offers
+                if ($offer->isInitialOffer() && $offer->counterOffers()->exists()) {
+                    $offer->counterOffers()
+                        ->where('status', 'pending')
+                        ->update([
+                            'status' => 'cancelled',
+                            'cancelled_at' => now(),
+                            'rejection_reason' => 'Original offer was cancelled'
+                        ]);
+                }
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Offer cancelled successfully'
+                ]);
+            } catch (\Exception $e) {
+                DB::rollback();
+                throw $e;
+            }
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

@@ -16,9 +16,11 @@ return new class extends Migration
             $table->foreignId('sender_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('receiver_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('item_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('parent_offer_id')->nullable()->constrained('offers')->cascadeOnDelete();
             $table->decimal('amount', 10, 2);
             $table->text('message')->nullable();
             $table->enum('status', ['pending', 'accepted', 'rejected', 'cancelled'])->default('pending');
+            $table->enum('offer_type', ['initial', 'counter'])->default('initial');
             $table->timestamp('accepted_at')->nullable();
             $table->timestamp('rejected_at')->nullable();
             $table->timestamp('cancelled_at')->nullable();

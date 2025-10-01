@@ -116,7 +116,7 @@ Route::prefix('legal')->group(function () {
     Route::get('document/{documentType}', [LegalController::class, 'getLegalDocument']);
 });
 
-Route::get('/debug-ably-token', function() {
+Route::get('/debug-ably-token', function () {
     try {
         $token = request()->header('X-Ably-Token');
         if (!$token) {
@@ -462,6 +462,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('offers')->group(function () {
         Route::get('/', [OfferController::class, 'getOffers']);
         Route::post('/', [OfferController::class, 'sendOffer']);
+        Route::post('{offerId}/counter', [OfferController::class, 'sendCounterOffer']); // NEW
         Route::put('{offerId}/accept', [OfferController::class, 'acceptOffer']);
         Route::put('{offerId}/reject', [OfferController::class, 'rejectOffer']);
         Route::delete('{offerId}', [OfferController::class, 'cancelOffer']);
