@@ -511,8 +511,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('stats/compare', [ProfileController::class, 'compareUserStats'])
             ->middleware('throttle:5,1'); // ✅ ADD: Rate limiting
 
-        Route::put('/', [ProfileController::class, 'updateProfile']);
-        Route::post('upload-avatar', [ProfileController::class, 'uploadAvatar']);
+        Route::post('/', [ProfileController::class, 'updateProfile']);
 
         Route::post('upload-student-id', [ProfileController::class, 'uploadStudentId']);
         Route::post('verification', [ProfileController::class, 'submitStudentVerification']);

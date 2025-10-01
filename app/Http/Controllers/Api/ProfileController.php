@@ -102,14 +102,21 @@ class ProfileController extends Controller
             'name' => 'sometimes|string|max:255|min:2',
             'email' => 'sometimes|email|max:255|unique:users,email,' . Auth::id(),
             'phone' => 'sometimes|string|max:20|regex:/^[0-9+\-\s()]*$/',
-            'bio' => 'sometimes|string|max:500', // Match frontend limit
+            'bio' => 'sometimes|string|max:500',
             'avatar' => 'sometimes|image|mimes:jpg,jpeg,png,webp|max:5120',
+            'profile_image' => 'sometimes|image|mimes:jpg,jpeg,png,webp|max:5120',
+            'university' => 'sometimes|string|max:255',
+            'course' => 'sometimes|string|max:255',
+            'semester' => 'sometimes|string|max:50',
+            'is_student' => 'sometimes|boolean',
         ], [
             'name.min' => 'Name must be at least 2 characters long',
             'phone.regex' => 'Please enter a valid phone number',
             'bio.max' => 'Bio cannot exceed 500 characters',
             'avatar.image' => 'Avatar must be an image file',
             'avatar.mimes' => 'Avatar must be a JPG, JPEG, PNG, or WebP file',
+            'profile_image.image' => 'Profile image must be an image file',
+            'profile_image.mimes' => 'Profile image must be a JPG, JPEG, PNG, or WebP file',
         ]);
 
         if ($validator->fails()) {
@@ -121,17 +128,18 @@ class ProfileController extends Controller
 
         try {
             $user = Auth::user();
-
             DB::beginTransaction();
 
             // Handle profile image upload
             if ($request->hasFile('profile_image') || $request->hasFile('avatar')) {
                 $file = $request->file('profile_image') ?? $request->file('avatar');
 
+                // Delete old image
                 if ($user->profile_image) {
                     Storage::disk('public')->delete($user->profile_image);
                 }
 
+                // Upload new image
                 $imagePath = $file->store('profile-images', 'public');
                 $user->profile_image = $imagePath;
             }
@@ -162,12 +170,17 @@ class ProfileController extends Controller
             }
 
             $user->save();
-
             DB::commit();
+
+            // Prepare response data with full image URL
+            $userData = $user->fresh()->toArray();
+            if ($userData['profile_image']) {
+                $userData['profile_image'] = Storage::disk('public')->url($userData['profile_image']);
+            }
 
             return response()->json([
                 'success' => true,
-                'data' => $user->fresh()->toArray(),
+                'data' => $userData,
                 'message' => 'Profile updated successfully'
             ]);
         } catch (\Exception $e) {
@@ -176,48 +189,6 @@ class ProfileController extends Controller
                 'success' => false,
                 'message' => 'Failed to update profile',
                 'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    public function uploadAvatar(Request $request): JsonResponse
-    {
-        $validator = Validator::make($request->all(), [
-            'profile_image' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        try {
-            $user = Auth::user();
-
-            // Delete old image
-            if ($user->profile_image) {
-                Storage::disk('public')->delete($user->profile_image);
-            }
-
-            // Upload new image
-            $imagePath = $request->file('profile_image')->store('profile-images', 'public');
-            $user->profile_image = $imagePath;
-            $user->save();
-
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'url' => Storage::disk('public')->url($imagePath),
-                    'path' => $imagePath
-                ],
-                'message' => 'Avatar uploaded successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to upload avatar'
             ], 500);
         }
     }
