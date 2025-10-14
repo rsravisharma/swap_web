@@ -8,6 +8,8 @@ use App\Models\ItemImage;
 use App\Models\Favorite;
 use App\Models\Location;
 use App\Models\Category;
+use App\Models\SubCategory ;
+use App\Models\ChildSubCategory;
 use App\Services\HistoryService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -310,22 +312,54 @@ class ItemController extends Controller
                 $categoryName = $request->input('category');
                 $data['category_name'] = $categoryName;
 
-                // Try to find or create category for relationships
-                $category = Category::firstOrCreate(
-                    ['name' => $categoryName],
-                    [
+                // First, try to find the name in all three tables
+                $category = Category::where('name', $categoryName)->first();
+                $subCategory = SubCategory::where('name', $categoryName)->first();
+                $childSubCategory = ChildSubCategory::where('name', $categoryName)->first();
+
+                if ($childSubCategory) {
+                    // It's a child sub category
+                    $data['child_sub_category_id'] = $childSubCategory->id;
+                    $data['sub_category_id'] = $childSubCategory->sub_category_id;
+                    $data['category_id'] = $childSubCategory->subCategory->category_id;
+
+                    Log::info("Child sub category found", [
+                        'name' => $categoryName,
+                        'child_sub_category_id' => $childSubCategory->id
+                    ]);
+                } elseif ($subCategory) {
+                    // It's a sub category
+                    $data['sub_category_id'] = $subCategory->id;
+                    $data['category_id'] = $subCategory->category_id;
+
+                    Log::info("Sub category found", [
+                        'name' => $categoryName,
+                        'sub_category_id' => $subCategory->id
+                    ]);
+                } elseif ($category) {
+                    // It's a main category
+                    $data['category_id'] = $category->id;
+
+                    Log::info("Category found", [
+                        'name' => $categoryName,
+                        'id' => $category->id
+                    ]);
+                } else {
+                    // Name not found in any table - create new category
+                    $category = Category::create([
+                        'name' => $categoryName,
                         'slug' => Str::slug($categoryName),
                         'description' => "Auto-created category for {$categoryName}",
                         'is_active' => true,
-                    ]
-                );
+                    ]);
 
-                $data['category_id'] = $category->id;
-                \Log::info("Category processed", [
-                    'name' => $categoryName,
-                    'id' => $category->id,
-                    'was_created' => $category->wasRecentlyCreated
-                ]);
+                    $data['category_id'] = $category->id;
+
+                    Log::info("New category created", [
+                        'name' => $categoryName,
+                        'id' => $category->id
+                    ]);
+                }
             }
 
             // Handle location - hybrid approach
@@ -363,9 +397,9 @@ class ItemController extends Controller
 
                     if (!$location) {
                         $location = Location::create($locationData);
-                        \Log::info("New location created", ['location_id' => $location->id]);
+                        Log::info("New location created", ['location_id' => $location->id]);
                     } else {
-                        \Log::info("Existing location found", ['location_id' => $location->id]);
+                        Log::info("Existing location found", ['location_id' => $location->id]);
                     }
 
                     $data['location_id'] = $location->id;
@@ -392,7 +426,7 @@ class ItemController extends Controller
                 'message' => 'Item created successfully'
             ], 201);
         } catch (\Exception $e) {
-            \Log::error('Item creation failed', [
+            Log::error('Item creation failed', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'request_data' => $request->except(['images'])
@@ -466,24 +500,56 @@ class ItemController extends Controller
             // ✅ FIXED: Handle category - same as store method
             if ($request->has('category')) {
                 $categoryName = $request->input('category');
-                $updateData['category_name'] = $categoryName;
+                $data['category_name'] = $categoryName;
 
-                // Try to find or create category for relationships
-                $category = Category::firstOrCreate(
-                    ['name' => $categoryName],
-                    [
+                // First, try to find the name in all three tables
+                $category = Category::where('name', $categoryName)->first();
+                $subCategory = SubCategory::where('name', $categoryName)->first();
+                $childSubCategory = ChildSubCategory::where('name', $categoryName)->first();
+
+                if ($childSubCategory) {
+                    // It's a child sub category
+                    $data['child_sub_category_id'] = $childSubCategory->id;
+                    $data['sub_category_id'] = $childSubCategory->sub_category_id;
+                    $data['category_id'] = $childSubCategory->subCategory->category_id;
+
+                    Log::info("Child sub category found", [
+                        'name' => $categoryName,
+                        'child_sub_category_id' => $childSubCategory->id
+                    ]);
+                } elseif ($subCategory) {
+                    // It's a sub category
+                    $data['sub_category_id'] = $subCategory->id;
+                    $data['category_id'] = $subCategory->category_id;
+
+                    Log::info("Sub category found", [
+                        'name' => $categoryName,
+                        'sub_category_id' => $subCategory->id
+                    ]);
+                } elseif ($category) {
+                    // It's a main category
+                    $data['category_id'] = $category->id;
+
+                    Log::info("Category found", [
+                        'name' => $categoryName,
+                        'id' => $category->id
+                    ]);
+                } else {
+                    // Name not found in any table - create new category
+                    $category = Category::create([
+                        'name' => $categoryName,
                         'slug' => Str::slug($categoryName),
                         'description' => "Auto-created category for {$categoryName}",
                         'is_active' => true,
-                    ]
-                );
+                    ]);
 
-                $updateData['category_id'] = $category->id;
-                \Log::info("Category processed for update", [
-                    'name' => $categoryName,
-                    'id' => $category->id,
-                    'was_created' => $category->wasRecentlyCreated
-                ]);
+                    $data['category_id'] = $category->id;
+
+                    Log::info("New category created", [
+                        'name' => $categoryName,
+                        'id' => $category->id
+                    ]);
+                }
             }
 
             // ✅ FIXED: Handle location - same as store method
@@ -521,9 +587,9 @@ class ItemController extends Controller
 
                     if (!$location) {
                         $location = Location::create($locationData);
-                        \Log::info("New location created for update", ['location_id' => $location->id]);
+                        Log::info("New location created for update", ['location_id' => $location->id]);
                     } else {
-                        \Log::info("Existing location found for update", ['location_id' => $location->id]);
+                        Log::info("Existing location found for update", ['location_id' => $location->id]);
                     }
 
                     $updateData['location_id'] = $location->id;
@@ -831,22 +897,22 @@ class ItemController extends Controller
     public function getMyListings(): JsonResponse
     {
         try {
-            \Log::info('getMyListings called for user: ' . Auth::id());
+            Log::info('getMyListings called for user: ' . Auth::id());
 
             $items = Item::with(['images', 'category'])
                 ->where('user_id', Auth::id())
                 ->latest()
                 ->get();
 
-            \Log::info('Found ' . $items->count() . ' items for user: ' . Auth::id());
+            Log::info('Found ' . $items->count() . ' items for user: ' . Auth::id());
 
             return response()->json([
                 'success' => true,
                 'data' => $items
             ]);
         } catch (\Exception $e) {
-            \Log::error('getMyListings error: ' . $e->getMessage());
-            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            Log::error('getMyListings error: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
 
             return response()->json([
                 'success' => false,
