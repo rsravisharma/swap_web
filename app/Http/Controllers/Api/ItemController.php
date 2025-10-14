@@ -520,7 +520,6 @@ class ItemController extends Controller
             // ✅ FIXED: Handle category - same as store method
             if ($request->has('category')) {
                 $categoryName = $request->input('category');
-                $data['category_name'] = $categoryName;
 
                 // Search in order: ChildSubCategory -> SubCategory -> Category
                 $childSubCategory = ChildSubCategory::where('name', $categoryName)
@@ -539,39 +538,42 @@ class ItemController extends Controller
 
                 if ($childSubCategory) {
                     // It's a child sub category
-                    $data['child_sub_category_id'] = $childSubCategory->id;
-                    $data['sub_category_id'] = $childSubCategory->sub_category_id;
-                    $data['category_id'] = $childSubCategory->subCategory->category_id;
-                    $data['category_name'] = $categoryName;
+                    $updateData['child_sub_category_id'] = $childSubCategory->id;
+                    $updateData['sub_category_id'] = $childSubCategory->sub_category_id;
+                    $updateData['category_id'] = $childSubCategory->subCategory->category_id;
+                    $updateData['category_name'] = $categoryName;
 
                     Log::info("Child sub category found", [
                         'name' => $categoryName,
                         'child_sub_category_id' => $childSubCategory->id,
-                        'sub_category_id' => $data['sub_category_id'],
-                        'category_id' => $data['category_id']
+                        'sub_category_id' => $updateData['sub_category_id'],
+                        'category_id' => $updateData['category_id']
                     ]);
                 } elseif ($subCategory) {
-                    $data['sub_category_id'] = $subCategory->id;
-                    $data['category_id'] = $subCategory->category_id;
-                    $data['child_sub_category_id'] = null;
-                    $data['category_name'] = $categoryName;
+                    // It's a sub category - THIS IS YOUR CASE
+                    $updateData['sub_category_id'] = $subCategory->id;
+                    $updateData['category_id'] = $subCategory->category_id;
+                    $updateData['child_sub_category_id'] = null;
+                    $updateData['category_name'] = $categoryName;
 
                     Log::info("Sub category found", [
                         'name' => $categoryName,
                         'sub_category_id' => $subCategory->id,
-                        'category_id' => $data['category_id']
+                        'category_id' => $updateData['category_id']
                     ]);
                 } elseif ($category) {
-                    $data['category_id'] = $category->id;
-                    $data['sub_category_id'] = null;
-                    $data['child_sub_category_id'] = null;
-                    $data['category_name'] = $categoryName;
+                    // It's a main category
+                    $updateData['category_id'] = $category->id;
+                    $updateData['sub_category_id'] = null;
+                    $updateData['child_sub_category_id'] = null;
+                    $updateData['category_name'] = $categoryName;
 
                     Log::info("Category found", [
                         'name' => $categoryName,
                         'id' => $category->id
                     ]);
                 } else {
+                    // Name not found - create new category
                     $category = Category::create([
                         'name' => $categoryName,
                         'slug' => Str::slug($categoryName),
@@ -579,10 +581,10 @@ class ItemController extends Controller
                         'is_active' => true,
                     ]);
 
-                    $data['category_id'] = $category->id;
-                    $data['sub_category_id'] = null;
-                    $data['child_sub_category_id'] = null;
-                    $data['category_name'] = $categoryName;
+                    $updateData['category_id'] = $category->id;
+                    $updateData['sub_category_id'] = null;
+                    $updateData['child_sub_category_id'] = null;
+                    $updateData['category_name'] = $categoryName;
 
                     Log::info("New category created", [
                         'name' => $categoryName,
