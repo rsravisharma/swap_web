@@ -8,7 +8,7 @@ use App\Models\ItemImage;
 use App\Models\Favorite;
 use App\Models\Location;
 use App\Models\Category;
-use App\Models\SubCategory ;
+use App\Models\SubCategory;
 use App\Models\ChildSubCategory;
 use App\Services\HistoryService;
 use Illuminate\Http\Request;
@@ -312,40 +312,57 @@ class ItemController extends Controller
                 $categoryName = $request->input('category');
                 $data['category_name'] = $categoryName;
 
-                // First, try to find the name in all three tables
-                $category = Category::where('name', $categoryName)->first();
-                $subCategory = SubCategory::where('name', $categoryName)->first();
-                $childSubCategory = ChildSubCategory::where('name', $categoryName)->first();
+                // Search in order: ChildSubCategory -> SubCategory -> Category
+                $childSubCategory = ChildSubCategory::where('name', $categoryName)
+                    ->where('is_active', true)
+                    ->with('subCategory.category')
+                    ->first();
+
+                $subCategory = SubCategory::where('name', $categoryName)
+                    ->where('is_active', true)
+                    ->with('category')
+                    ->first();
+
+                $category = Category::where('name', $categoryName)
+                    ->where('is_active', true)
+                    ->first();
 
                 if ($childSubCategory) {
-                    // It's a child sub category
+
                     $data['child_sub_category_id'] = $childSubCategory->id;
                     $data['sub_category_id'] = $childSubCategory->sub_category_id;
                     $data['category_id'] = $childSubCategory->subCategory->category_id;
+                    $data['category_name'] = $categoryName;
 
                     Log::info("Child sub category found", [
                         'name' => $categoryName,
-                        'child_sub_category_id' => $childSubCategory->id
+                        'child_sub_category_id' => $childSubCategory->id,
+                        'sub_category_id' => $data['sub_category_id'],
+                        'category_id' => $data['category_id']
                     ]);
                 } elseif ($subCategory) {
-                    // It's a sub category
                     $data['sub_category_id'] = $subCategory->id;
                     $data['category_id'] = $subCategory->category_id;
+                    $data['child_sub_category_id'] = null;
+                    $data['category_name'] = $categoryName;
 
                     Log::info("Sub category found", [
                         'name' => $categoryName,
-                        'sub_category_id' => $subCategory->id
+                        'sub_category_id' => $subCategory->id,
+                        'category_id' => $data['category_id']
                     ]);
                 } elseif ($category) {
                     // It's a main category
                     $data['category_id'] = $category->id;
+                    $data['sub_category_id'] = null;
+                    $data['child_sub_category_id'] = null;
+                    $data['category_name'] = $categoryName;
 
                     Log::info("Category found", [
                         'name' => $categoryName,
                         'id' => $category->id
                     ]);
                 } else {
-                    // Name not found in any table - create new category
                     $category = Category::create([
                         'name' => $categoryName,
                         'slug' => Str::slug($categoryName),
@@ -354,6 +371,9 @@ class ItemController extends Controller
                     ]);
 
                     $data['category_id'] = $category->id;
+                    $data['sub_category_id'] = null;
+                    $data['child_sub_category_id'] = null;
+                    $data['category_name'] = $categoryName;
 
                     Log::info("New category created", [
                         'name' => $categoryName,
@@ -502,40 +522,56 @@ class ItemController extends Controller
                 $categoryName = $request->input('category');
                 $data['category_name'] = $categoryName;
 
-                // First, try to find the name in all three tables
-                $category = Category::where('name', $categoryName)->first();
-                $subCategory = SubCategory::where('name', $categoryName)->first();
-                $childSubCategory = ChildSubCategory::where('name', $categoryName)->first();
+                // Search in order: ChildSubCategory -> SubCategory -> Category
+                $childSubCategory = ChildSubCategory::where('name', $categoryName)
+                    ->where('is_active', true)
+                    ->with('subCategory.category')
+                    ->first();
+
+                $subCategory = SubCategory::where('name', $categoryName)
+                    ->where('is_active', true)
+                    ->with('category')
+                    ->first();
+
+                $category = Category::where('name', $categoryName)
+                    ->where('is_active', true)
+                    ->first();
 
                 if ($childSubCategory) {
                     // It's a child sub category
                     $data['child_sub_category_id'] = $childSubCategory->id;
                     $data['sub_category_id'] = $childSubCategory->sub_category_id;
                     $data['category_id'] = $childSubCategory->subCategory->category_id;
+                    $data['category_name'] = $categoryName;
 
                     Log::info("Child sub category found", [
                         'name' => $categoryName,
-                        'child_sub_category_id' => $childSubCategory->id
+                        'child_sub_category_id' => $childSubCategory->id,
+                        'sub_category_id' => $data['sub_category_id'],
+                        'category_id' => $data['category_id']
                     ]);
                 } elseif ($subCategory) {
-                    // It's a sub category
                     $data['sub_category_id'] = $subCategory->id;
                     $data['category_id'] = $subCategory->category_id;
+                    $data['child_sub_category_id'] = null;
+                    $data['category_name'] = $categoryName;
 
                     Log::info("Sub category found", [
                         'name' => $categoryName,
-                        'sub_category_id' => $subCategory->id
+                        'sub_category_id' => $subCategory->id,
+                        'category_id' => $data['category_id']
                     ]);
                 } elseif ($category) {
-                    // It's a main category
                     $data['category_id'] = $category->id;
+                    $data['sub_category_id'] = null;
+                    $data['child_sub_category_id'] = null;
+                    $data['category_name'] = $categoryName;
 
                     Log::info("Category found", [
                         'name' => $categoryName,
                         'id' => $category->id
                     ]);
                 } else {
-                    // Name not found in any table - create new category
                     $category = Category::create([
                         'name' => $categoryName,
                         'slug' => Str::slug($categoryName),
@@ -544,6 +580,9 @@ class ItemController extends Controller
                     ]);
 
                     $data['category_id'] = $category->id;
+                    $data['sub_category_id'] = null;
+                    $data['child_sub_category_id'] = null;
+                    $data['category_name'] = $categoryName;
 
                     Log::info("New category created", [
                         'name' => $categoryName,
