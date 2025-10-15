@@ -29,20 +29,14 @@ class OfferController extends Controller
             $user = Auth::user();
             $tab = $request->query('tab', 'all');
 
-            $offersQuery = Offer::latestInChain()
+            // Start with base query
+            $offersQuery = Offer::query()
                 ->where(function ($query) use ($user) {
                     $query->where('sender_id', $user->id)
                         ->orWhere('receiver_id', $user->id);
-                })
-                ->with([
-                    'item.user',
-                    'item.images',
-                    'sender',
-                    'receiver',
-                    'parentOffer.sender',
-                    'parentOffer.receiver'
-                ]);
+                });
 
+            // Apply tab-specific filtering BEFORE latestInChain
             switch ($tab) {
                 case 'received':
                     $offersQuery->where('receiver_id', $user->id)
@@ -61,13 +55,28 @@ class OfferController extends Controller
                 case 'rejected':
                     $offersQuery->whereIn('status', ['rejected', 'cancelled']);
                     break;
-
-                case 'all':
-                default:
-                    break;
             }
 
-            $offers = $offersQuery->orderBy('created_at', 'desc')->get();
+            // Apply latestInChain AFTER status filtering
+            $offers = $offersQuery
+                ->latestInChain()
+                ->with([
+                    'item.user',
+                    'item.images',
+                    'sender',
+                    'receiver',
+                    'parentOffer.sender',
+                    'parentOffer.receiver'
+                ])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            \Log::info('Offers Query', [
+                'tab' => $tab,
+                'user_id' => $user->id,
+                'count' => $offers->count(),
+                'offer_ids' => $offers->pluck('id'),
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -78,6 +87,11 @@ class OfferController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
+            \Log::error('Error fetching offers', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch offers',
@@ -85,6 +99,7 @@ class OfferController extends Controller
             ], 500);
         }
     }
+
 
     public function getOfferStatistics(): JsonResponse
     {
