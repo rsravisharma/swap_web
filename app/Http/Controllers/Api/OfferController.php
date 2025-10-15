@@ -28,11 +28,11 @@ class OfferController extends Controller
         try {
             $user = Auth::user();
 
-            // Get both sent and received offers
-            $offers = Offer::where(function ($query) use ($user) {
-                $query->where('sender_id', $user->id)
-                    ->orWhere('receiver_id', $user->id);
-            })
+            $offers = Offer::latestInChain()
+                ->where(function ($query) use ($user) {
+                    $query->where('sender_id', $user->id)
+                        ->orWhere('receiver_id', $user->id);
+                })
                 ->with([
                     'item.user',
                     'item.images',

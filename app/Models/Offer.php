@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class Offer extends Model
 {
@@ -68,7 +69,7 @@ class Offer extends Model
         if ($this->parent_offer_id) {
             return $this->parentOffer->offerChain();
         }
-        
+
         return $this->counterOffers()->with('counterOffers');
     }
 
@@ -78,7 +79,7 @@ class Offer extends Model
         if ($this->parent_offer_id) {
             return $this->parentOffer->rootOffer();
         }
-        
+
         return $this;
     }
 
@@ -170,7 +171,7 @@ class Offer extends Model
         if ($this->isCounterOffer()) {
             return $this->rootOffer()->counterOffers()->count();
         }
-        
+
         return $this->counterOffers()->count();
     }
 
@@ -179,12 +180,22 @@ class Offer extends Model
         if ($this->isInitialOffer()) {
             return 1;
         }
-        
+
         $rootOffer = $this->rootOffer();
         $allOffers = collect([$rootOffer])->merge($rootOffer->counterOffers);
-        
+
         return $allOffers->search(function ($offer) {
             return $offer->id === $this->id;
         }) + 1;
+    }
+
+    public function scopeLatestInChain($query)
+    {
+        return $query->whereIn('id', function ($subQuery) {
+            $subQuery->select(DB::raw('MAX(id)'))
+                ->from('offers as o2')
+                ->whereRaw('COALESCE(o2.parent_offer_id, o2.id) = COALESCE(offers.parent_offer_id, offers.id)')
+                ->groupBy(DB::raw('COALESCE(o2.parent_offer_id, o2.id)'));
+        });
     }
 }
