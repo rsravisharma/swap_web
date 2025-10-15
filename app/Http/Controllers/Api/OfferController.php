@@ -23,12 +23,13 @@ class OfferController extends Controller
      * Get offers
      * GET /offers
      */
-    public function getOffers(): JsonResponse
+    public function getOffers(Request $request): JsonResponse
     {
         try {
             $user = Auth::user();
+            $tab = $request->query('tab', 'all');
 
-            $offers = Offer::latestInChain()
+            $offersQuery = Offer::latestInChain()
                 ->where(function ($query) use ($user) {
                     $query->where('sender_id', $user->id)
                         ->orWhere('receiver_id', $user->id);
@@ -40,13 +41,41 @@ class OfferController extends Controller
                     'receiver',
                     'parentOffer.sender',
                     'parentOffer.receiver'
-                ])
-                ->orderBy('created_at', 'desc')
-                ->get();
+                ]);
+
+            switch ($tab) {
+                case 'received':
+                    $offersQuery->where('receiver_id', $user->id)
+                        ->where('status', 'pending');
+                    break;
+
+                case 'sent':
+                    $offersQuery->where('sender_id', $user->id)
+                        ->where('status', 'pending');
+                    break;
+
+                case 'accepted':
+                    $offersQuery->where('status', 'accepted');
+                    break;
+
+                case 'rejected':
+                    $offersQuery->whereIn('status', ['rejected', 'cancelled']);
+                    break;
+
+                case 'all':
+                default:
+                    break;
+            }
+
+            $offers = $offersQuery->orderBy('created_at', 'desc')->get();
 
             return response()->json([
                 'success' => true,
-                'data' => $offers
+                'data' => $offers,
+                'meta' => [
+                    'total' => $offers->count(),
+                    'tab' => $tab
+                ]
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -57,7 +86,42 @@ class OfferController extends Controller
         }
     }
 
+    public function getOfferStatistics(): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            $allOffers = Offer::latestInChain()
+                ->where(function ($query) use ($user) {
+                    $query->where('sender_id', $user->id)
+                        ->orWhere('receiver_id', $user->id);
+                })
+                ->get();
 
+            $statistics = [
+                'total' => $allOffers->count(),
+                'received' => $allOffers->where('receiver_id', $user->id)
+                    ->where('status', 'pending')
+                    ->count(),
+                'sent' => $allOffers->where('sender_id', $user->id)
+                    ->where('status', 'pending')
+                    ->count(),
+                'accepted' => $allOffers->where('status', 'accepted')->count(),
+                'rejected' => $allOffers->whereIn('status', ['rejected', 'cancelled'])->count(),
+                'pending' => $allOffers->where('status', 'pending')->count(),
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $statistics
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch offer statistics',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 
     /**
      * Send offer

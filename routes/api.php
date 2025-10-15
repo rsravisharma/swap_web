@@ -462,7 +462,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('offers')->group(function () {
         Route::get('/', [OfferController::class, 'getOffers']);
         Route::post('/', [OfferController::class, 'sendOffer']);
-        Route::post('{offerId}/counter', [OfferController::class, 'sendCounterOffer']); // NEW
+        Route::get('statistics', [OfferController::class, 'getOfferStatistics']);
+        Route::post('{offerId}/counter', [OfferController::class, 'sendCounterOffer']);
         Route::put('{offerId}/accept', [OfferController::class, 'acceptOffer']);
         Route::put('{offerId}/reject', [OfferController::class, 'rejectOffer']);
         Route::delete('{offerId}', [OfferController::class, 'cancelOffer']);
