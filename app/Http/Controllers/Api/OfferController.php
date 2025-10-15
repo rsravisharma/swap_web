@@ -138,6 +138,40 @@ class OfferController extends Controller
         }
     }
 
+    public function getOfferChain(string $offerId): JsonResponse
+    {
+        try {
+            $offer = Offer::with([
+                'parentOffer.sender',
+                'parentOffer.receiver',
+                'counterOffers.sender',
+                'counterOffers.receiver',
+            ])->findOrFail($offerId);
+
+            // Find root offer
+            $rootOffer = $offer->rootOffer();
+
+            // Load all offers in this chain: root + counter offers ordered by created_at
+            $offerChain = Offer::where('id', $rootOffer->id)
+                ->orWhere('parent_offer_id', $rootOffer->id)
+                ->with(['sender', 'receiver', 'parentOffer'])
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $offerChain
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch offer chain',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+
     /**
      * Send offer
      * POST /offers

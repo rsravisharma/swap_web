@@ -464,6 +464,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/', [OfferController::class, 'sendOffer']);
         Route::get('statistics', [OfferController::class, 'getOfferStatistics']);
         Route::post('{offerId}/counter', [OfferController::class, 'sendCounterOffer']);
+        Route::get('{offerId}/chain', [OfferController::class, 'getOfferChain']);
         Route::put('{offerId}/accept', [OfferController::class, 'acceptOffer']);
         Route::put('{offerId}/reject', [OfferController::class, 'rejectOffer']);
         Route::delete('{offerId}', [OfferController::class, 'cancelOffer']);
