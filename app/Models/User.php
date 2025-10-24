@@ -336,4 +336,29 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->chatSessionsAsUserOne->merge($this->chatSessionsAsUserTwo);
     }
+
+    /**
+     * Items this user has wishlisted
+     */
+    public function wishlistedItems()
+    {
+        return $this->belongsToMany(Item::class, 'wishlists', 'user_id', 'item_id')
+            ->withTimestamps();
+    }
+
+    /**
+     * Direct wishlist entries
+     */
+    public function wishlists()
+    {
+        return $this->hasMany(Wishlist::class);
+    }
+
+    /**
+     * Check if user has wishlisted an item
+     */
+    public function hasWishlisted(Item $item): bool
+    {
+        return $this->wishlistedItems()->where('item_id', $item->id)->exists();
+    }
 }

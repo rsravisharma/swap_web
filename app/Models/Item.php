@@ -215,4 +215,47 @@ class Item extends Model
             'category:id,name,icon'
         ]);
     }
+
+    /**
+     * Users who have wishlisted this item
+     */
+    public function wishlistedBy()
+    {
+        return $this->belongsToMany(User::class, 'wishlists', 'item_id', 'user_id')
+            ->withTimestamps();
+    }
+
+    /**
+     * Direct wishlist entries
+     */
+    public function wishlists()
+    {
+        return $this->hasMany(Wishlist::class);
+    }
+
+    /**
+     * Get wishlist count for this item
+     */
+    public function getWishlistCountAttribute(): int
+    {
+        return $this->wishlists()->count();
+    }
+
+    /**
+     * Check if this item is wishlisted by a user
+     */
+    public function isWishlistedBy(User $user): bool
+    {
+        return $this->wishlistedBy()->where('user_id', $user->id)->exists();
+    }
+
+    /**
+     * Scope to get most wishlisted items
+     */
+    public function scopeMostWishlisted($query, $limit = 10)
+    {
+        return $query->withCount('wishlists')
+            ->orderBy('wishlists_count', 'desc')
+            ->limit($limit);
+    }
 }

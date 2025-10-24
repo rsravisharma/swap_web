@@ -448,7 +448,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('items/{basketItemId}', [OfferController::class, 'removeBasketItem']);
     });
 
-    Route::post('wishlist/add', [OfferController::class, 'moveToWishlist']);
     Route::get('delivery/options', [OfferController::class, 'getDeliveryOptions']);
     Route::post('checkout', [OfferController::class, 'processCheckout']);
 
@@ -496,6 +495,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('{paymentId}/refund', [PaymentController::class, 'refundPayment']);
     });
 
+    Route::prefix('wishlist')->group(function () {
+        Route::get('/', [ProfileController::class, 'getWishlist']);
+        Route::get('/count', [ProfileController::class, 'getWishlistCount']);
+        Route::post('/', [ProfileController::class, 'addToWishlist']);
+        Route::delete('/clear', [ProfileController::class, 'clearWishlist']);
+        Route::delete('/{itemId}', [ProfileController::class, 'removeFromWishlist']);
+    });
+
     // ================================
     // PROFILE ROUTES
     // ================================
@@ -503,22 +510,26 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/', [ProfileController::class, 'getProfile']);
         Route::get('student', [ProfileController::class, 'getStudentProfile']);
         Route::get('earnings', [ProfileController::class, 'getEarningsHistory']);
-        Route::get('wishlist', [ProfileController::class, 'getWishlist']);
+        Route::post('/', [ProfileController::class, 'updateProfile']);
+        Route::post('upload-student-id', [ProfileController::class, 'uploadStudentId']);
+        Route::post('verification', [ProfileController::class, 'submitStudentVerification']);
 
         // Stats routes with rate limiting
         Route::get('stats', [ProfileController::class, 'getCurrentUserStats']);
         Route::get('stats/{userId}', [ProfileController::class, 'getUserStats']);
         Route::get('stats/realtime', [ProfileController::class, 'getUserStatsRealtime'])
-            ->middleware('throttle:10,1'); // ✅ ADD: Rate limiting
+            ->middleware('throttle:10,1');
         Route::get('stats/compare', [ProfileController::class, 'compareUserStats'])
-            ->middleware('throttle:5,1'); // ✅ ADD: Rate limiting
+            ->middleware('throttle:5,1');
 
-        Route::post('/', [ProfileController::class, 'updateProfile']);
-
-        Route::post('upload-student-id', [ProfileController::class, 'uploadStudentId']);
-        Route::post('verification', [ProfileController::class, 'submitStudentVerification']);
-
-        Route::delete('wishlist/{itemId}', [ProfileController::class, 'removeFromWishlist']);
+        // Wishlist nested routes
+        Route::prefix('wishlist')->group(function () {
+            Route::get('/', [ProfileController::class, 'getWishlist']);
+            Route::get('/count', [ProfileController::class, 'getWishlistCount']);
+            Route::post('/', [ProfileController::class, 'addToWishlist']);
+            Route::delete('/clear', [ProfileController::class, 'clearWishlist']);
+            Route::delete('/{itemId}', [ProfileController::class, 'removeFromWishlist']);
+        });
     });
 
     // ================================

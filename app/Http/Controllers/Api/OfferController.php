@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Offer;
 use App\Models\Order;
 use App\Models\BasketItem;
+use App\Models\Wishlist;
 use App\Models\StudyMaterialRequest;
 use App\Models\Item;
 use App\Models\PaymentMethod;
@@ -641,6 +642,72 @@ class OfferController extends Controller
         }
     }
 
+    public function addToWishlist(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'item_id' => 'required|exists:items,id'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $user = Auth::user();
+            $itemId = $request->input('item_id');
+
+            // Check if item is active
+            $item = Item::where('id', $itemId)
+                ->where('status', 'active')
+                ->first();
+
+            if (!$item) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item not found or not available'
+                ], 404);
+            }
+
+            // Check if user is trying to wishlist their own item
+            if ($item->user_id === $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You cannot add your own item to wishlist'
+                ], 400);
+            }
+
+            // Add to wishlist using firstOrCreate (prevents duplicates)
+            $wishlist = Wishlist::firstOrCreate([
+                'user_id' => $user->id,
+                'item_id' => $itemId
+            ]);
+
+            // Check if it was just created or already existed
+            $wasRecentlyCreated = $wishlist->wasRecentlyCreated;
+
+            return response()->json([
+                'success' => true,
+                'message' => $wasRecentlyCreated
+                    ? 'Item added to wishlist successfully'
+                    : 'Item already in wishlist',
+                'data' => [
+                    'wishlist_id' => $wishlist->id,
+                    'item_id' => $itemId,
+                    'added_at' => $wishlist->created_at
+                ]
+            ], $wasRecentlyCreated ? 201 : 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to add item to wishlist',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     /**
      * Move basket item to wishlist
      * POST /wishlist/add
@@ -648,7 +715,8 @@ class OfferController extends Controller
     public function moveToWishlist(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'basket_item_id' => 'required|string'
+            'basket_item_id' => 'required|string',
+            'item_id' => 'required|exists:items,id'
         ]);
 
         if ($validator->fails()) {
@@ -661,7 +729,9 @@ class OfferController extends Controller
         try {
             $user = Auth::user();
             $basketItemId = $request->input('basket_item_id');
+            $itemId = $request->input('item_id');
 
+            // Find and delete the basket item
             $basketItem = BasketItem::where('id', $basketItemId)
                 ->where('user_id', $user->id)
                 ->first();
@@ -673,13 +743,22 @@ class OfferController extends Controller
                 ], 404);
             }
 
-            // Add to wishlist (implement Wishlist model logic)
-            // For now, just removing from basket
+            // Add to wishlist using firstOrCreate to prevent duplicates
+            $wishlist = Wishlist::firstOrCreate([
+                'user_id' => $user->id,
+                'item_id' => $itemId
+            ]);
+
+            // Delete from basket
             $basketItem->delete();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Item moved to wishlist successfully'
+                'message' => 'Item moved to wishlist successfully',
+                'data' => [
+                    'wishlist_id' => $wishlist->id,
+                    'item_id' => $itemId
+                ]
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -689,6 +768,7 @@ class OfferController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Get payment methods

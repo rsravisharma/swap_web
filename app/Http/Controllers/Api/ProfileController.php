@@ -12,6 +12,7 @@ use App\Models\Item;
 use App\Models\Favorite;
 use App\Models\Purchase;
 use App\Models\UserRating;
+use App\Models\Wishlist;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -800,22 +801,52 @@ class ProfileController extends Controller
             $user = Auth::user();
             $perPage = $request->input('per_page', 20);
 
-            $wishlistItems = Item::whereHas('favorites', function ($query) use ($user) {
+            // Fetch wishlist items with optimized query
+            $wishlistItems = Item::whereHas('wishlists', function ($query) use ($user) {
                 $query->where('user_id', $user->id);
             })
-                ->with(['user:id,name,profile_image', 'images'])
+                ->with([
+                    'user:id,name,profile_image',
+                    'primaryImage:id,item_id,url,is_primary',
+                    'category:id,name,icon'
+                ])
                 ->where('status', 'active')
                 ->orderBy('created_at', 'desc')
-                ->paginate($perPage); // ✅ ADD: Pagination
+                ->paginate($perPage);
+
+            // Transform the data to include wishlist timestamp
+            $items = $wishlistItems->getCollection()->map(function ($item) use ($user) {
+                $wishlistEntry = Wishlist::where('user_id', $user->id)
+                    ->where('item_id', $item->id)
+                    ->first();
+
+                return [
+                    'id' => $item->id,
+                    'title' => $item->title,
+                    'description' => $item->description,
+                    'price' => $item->price,
+                    'condition' => $item->condition,
+                    'status' => $item->status,
+                    'location' => $item->location_display,
+                    'category' => $item->category_display,
+                    'images' => $item->images,
+                    'primary_image' => $item->primaryImage,
+                    'user' => $item->user,
+                    'added_to_wishlist_at' => $wishlistEntry ? $wishlistEntry->created_at : null,
+                    'is_promoted' => $item->is_promoted,
+                    'wishlist_count' => $item->wishlists()->count()
+                ];
+            });
 
             return response()->json([
                 'success' => true,
-                'data' => $wishlistItems->items(),
+                'data' => $items,
                 'pagination' => [
                     'current_page' => $wishlistItems->currentPage(),
                     'total_pages' => $wishlistItems->lastPage(),
                     'total_items' => $wishlistItems->total(),
                     'per_page' => $wishlistItems->perPage(),
+                    'has_more_pages' => $wishlistItems->hasMorePages()
                 ]
             ]);
         } catch (\Exception $e) {
@@ -827,6 +858,7 @@ class ProfileController extends Controller
         }
     }
 
+
     /**
      * Remove item from wishlist
      * DELETE /profile/wishlist/{itemId}
@@ -836,27 +868,86 @@ class ProfileController extends Controller
         try {
             $user = Auth::user();
 
-            $favorite = Favorite::where('user_id', $user->id)
+            // Find wishlist entry
+            $wishlist = Wishlist::where('user_id', $user->id)
                 ->where('item_id', $itemId)
                 ->first();
 
-            if (!$favorite) {
+            if (!$wishlist) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Item not found in wishlist'
                 ], 404);
             }
 
-            $favorite->delete();
+            // Delete wishlist entry
+            $wishlist->delete();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Item removed from wishlist successfully'
+                'message' => 'Item removed from wishlist successfully',
+                'data' => [
+                    'item_id' => $itemId,
+                    'removed_at' => now()
+                ]
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to remove item from wishlist',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Clear entire wishlist
+     * DELETE /profile/wishlist/clear
+     */
+    public function clearWishlist(): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+
+            $deletedCount = Wishlist::where('user_id', $user->id)->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Wishlist cleared successfully',
+                'data' => [
+                    'items_removed' => $deletedCount
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to clear wishlist',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get wishlist count
+     * GET /profile/wishlist/count
+     */
+    public function getWishlistCount(): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+
+            $count = Wishlist::where('user_id', $user->id)->count();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'count' => $count
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get wishlist count',
                 'error' => $e->getMessage()
             ], 500);
         }
