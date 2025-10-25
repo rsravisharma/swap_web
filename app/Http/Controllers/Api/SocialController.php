@@ -63,36 +63,96 @@ class SocialController extends Controller
     public function getFollowing(string $userId): JsonResponse
     {
         try {
-            $following = UserFollow::where('follower_id', $userId)
-                ->with(['followed:id,name,email,profile_image'])
+            Log::info('Getting following for user ID: ' . $userId);
+
+            $user = User::find($userId);
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found'
+                ], 404);
+            }
+
+            $followingQuery = UserFollow::where('follower_id', $userId)
+                ->with([
+                    'followed' => function ($query) {
+                        $query->select([
+                            'id',
+                            'name',
+                            'email',
+                            'profile_image',
+                            'is_verified',
+                            'university'
+                        ]);
+                    }
+                ])
                 ->orderBy('created_at', 'desc')
-                ->get()
-                ->map(function ($follow) {
-                    $followed = $follow->followed;
-                    return [
-                        'id' => $followed->id,
-                        'name' => $followed->name,
-                        'email' => $followed->email,
-                        'profile_image' => $followed->profile_image,
-                        'followed_at' => $follow->created_at->toDateTimeString(),
-                        'is_verified' => $followed->is_verified ?? false,
-                        'university' => $followed->university ?? null,
-                        'total_listings' => $followed->items()->count()
-                    ];
-                });
+                ->get();
+
+            Log::info('Found ' . $followingQuery->count() . ' following records');
+
+            $following = $followingQuery->map(function ($follow) {
+                $followed = $follow->followed;
+
+                // Safety check
+                if (!$followed) {
+                    Log::warning('Followed user not found for follow ID: ' . $follow->id);
+                    return null;
+                }
+
+                return [
+                    'id' => $followed->id,
+                    'name' => $followed->name,
+                    'display_name' => $followed->name, 
+                    'username' => $followed->username ?? $followed->email, 
+                    'email' => $followed->email,
+                    'avatar' => $followed->profile_image, 
+                    'profile_image' => $followed->profile_image,
+                    'bio' => $followed->bio ?? null, 
+                    'followed_at' => $follow->created_at->toDateTimeString(),
+                    'is_verified' => $followed->is_active ?? false,
+                    'is_online' => $followed->is_online ?? false, 
+                    'university' => $followed->university ?? null,
+                    'items_count' => $followed->items()->count(),
+                    'total_listings' => $followed->items()->count(),
+                    'followers_count' => $followed->followers()->count() ?? 0,
+                    'followersCount' => $followed->followers()->count() ?? 0,
+                    'following_count' => $followed->following()->count() ?? 0,
+                    'is_following' => true, // They are in following list
+                    'is_mutual' => $this->checkIfMutual($followed->id, $follow->follower_id),
+                    'last_active' => $followed->last_active_at ?? $followed->updated_at,
+                    'rating' => $followed->average_rating ?? null,
+                    'rating_count' => $followed->ratings_count ?? 0,
+                ];
+            })->filter(); // Remove null entries
 
             return response()->json([
                 'success' => true,
-                'data' => $following
+                'data' => $following->values(), // Reset array keys
+                'count' => $following->count()
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to get following: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to retrieve following users'
+                'message' => 'Failed to retrieve following users',
+                'error' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
+
+    /**
+     * Check if the relationship is mutual
+     */
+    private function checkIfMutual(int $followedId, int $followerId): bool
+    {
+        return UserFollow::where('follower_id', $followedId)
+            ->where('followed_id', $followerId)
+            ->exists();
+    }
+
 
     /**
      * Toggle follow user
