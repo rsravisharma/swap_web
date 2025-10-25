@@ -868,12 +868,13 @@ class ProfileController extends Controller
             $perPage = $request->input('per_page', 20);
 
             // Fetch wishlist items with optimized query
+            // ⭐ FIXED: Using correct column name 'image_path'
             $wishlistItems = Item::whereHas('wishlists', function ($query) use ($user) {
                 $query->where('user_id', $user->id);
             })
                 ->with([
                     'user:id,name,profile_image',
-                    'primaryImage:id,item_id,url,is_primary',
+                    'primaryImage:id,item_id,image_path,is_primary', // ⭐ FIXED: image_path
                     'category:id,name,icon'
                 ])
                 ->where('status', 'active')
@@ -900,7 +901,7 @@ class ProfileController extends Controller
                     'user' => $item->user,
                     'added_to_wishlist_at' => $wishlistEntry ? $wishlistEntry->created_at : null,
                     'is_promoted' => $item->is_promoted,
-                    'wishlist_count' => $item->wishlists()->count()
+                    'created_at' => $item->created_at,
                 ];
             });
 

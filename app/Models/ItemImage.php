@@ -23,6 +23,8 @@ class ItemImage extends Model
         'is_primary' => 'boolean',
     ];
 
+    protected $appends = ['url'];
+
     // Relationship back to Item
     public function item()
     {
@@ -43,6 +45,16 @@ class ItemImage extends Model
 
     public function getUrlAttribute()
     {
+        if (!$this->image_path) {
+            return null;
+        }
+
+        // If already a full URL, return as is
+        if (filter_var($this->image_path, FILTER_VALIDATE_URL)) {
+            return $this->image_path;
+        }
+
+        // Otherwise, prepend storage path
         return asset('storage/' . $this->image_path);
     }
 }

@@ -211,7 +211,7 @@ class Item extends Model
     {
         return $query->with([
             'user:id,name,profile_image',
-            'primaryImage:id,item_id,url,is_primary',
+            'primaryImage:id,item_id,image_path,is_primary',
             'category:id,name,icon'
         ]);
     }
