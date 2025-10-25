@@ -96,14 +96,25 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function followers()
     {
-        return $this->belongsToMany(User::class, 'user_followers', 'following_id', 'follower_id')
-            ->withTimestamps();
+        return $this->belongsToMany(
+            User::class,
+            'user_follows',
+            'followed_id',
+            'follower_id'
+        )->withTimestamps();
     }
 
+    /**
+     * Users that this user is following
+     */
     public function following()
     {
-        return $this->belongsToMany(User::class, 'user_followers', 'follower_id', 'following_id')
-            ->withTimestamps();
+        return $this->belongsToMany(
+            User::class,
+            'user_follows',
+            'follower_id',
+            'followed_id'
+        )->withTimestamps();
     }
 
     public function givenRatings()
@@ -189,9 +200,57 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     // Helper methods
-    public function isFollowing(User $user): bool
+    public function isFollowing($user): bool
     {
-        return $this->following()->where('following_id', $user->id)->exists();
+        $userId = $user instanceof User ? $user->id : $user;
+        return $this->following()->where('followed_id', $userId)->exists();
+    }
+
+    public function isFollowedBy($userId): bool
+    {
+        $userId = $userId instanceof User ? $userId->id : $userId;
+        return $this->followers()->where('follower_id', $userId)->exists();
+    }
+
+    public function follow(User $user): bool
+    {
+        if ($this->id === $user->id) {
+            return false; // Can't follow yourself
+        }
+
+        if ($this->isFollowing($user)) {
+            return false; // Already following
+        }
+
+        $this->following()->attach($user->id);
+        return true;
+    }
+
+    /**
+     * Unfollow a user
+     */
+    public function unfollow(User $user): bool
+    {
+        if (!$this->isFollowing($user)) {
+            return false; // Not following
+        }
+
+        $this->following()->detach($user->id);
+        return true;
+    }
+
+    /**
+     * Toggle follow status
+     */
+    public function toggleFollow(User $user): array
+    {
+        if ($this->isFollowing($user)) {
+            $this->unfollow($user);
+            return ['is_following' => false, 'message' => 'Unfollowed successfully'];
+        } else {
+            $this->follow($user);
+            return ['is_following' => true, 'message' => 'Followed successfully'];
+        }
     }
 
     public function hasBlocked(User $user): bool
@@ -335,6 +394,11 @@ class User extends Authenticatable implements MustVerifyEmail
     public function chatSessions()
     {
         return $this->chatSessionsAsUserOne->merge($this->chatSessionsAsUserTwo);
+    }
+
+    public function items()
+    {
+        return $this->hasMany(Item::class, 'user_id');
     }
 
     /**
