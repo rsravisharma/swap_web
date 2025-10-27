@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\{
     SearchController,
     LocationController,
     ChatController,
+    MeetupController,
     CommunicationController,
     OfferController,
     PaymentController,
@@ -451,6 +452,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('delivery/options', [OfferController::class, 'getDeliveryOptions']);
     Route::post('checkout', [OfferController::class, 'processCheckout']);
 
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::post('/meetups/confirm', [MeetupController::class, 'confirmMeetup']);
+        Route::get('/meetups', [MeetupController::class, 'index']);
+        Route::get('/meetups/{id}', [MeetupController::class, 'show']);
+        Route::put('/meetups/{id}/complete', [MeetupController::class, 'complete']);
+        Route::put('/meetups/{id}/cancel', [MeetupController::class, 'cancel']);
+    });
+
     Route::prefix('orders')->group(function () {
         Route::get('/', [OfferController::class, 'getOrders']);
         Route::get('{orderId}', [OfferController::class, 'getOrderDetails']);
@@ -613,12 +622,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('{userId}/items', [ItemController::class, 'getUserItems']);
 
         // ✅ SOCIAL ACTIONS: Both patterns are needed
-        Route::post('{userId}/toggle-follow', [SocialController::class, 'toggleFollow']); // Toggle action
-        Route::post('{userId}/follow', [SocialController::class, 'toggleFollow']); // Same method, different endpoint
+        Route::post('{userId}/toggle-follow', [SocialController::class, 'toggleFollow']);
+        Route::post('{userId}/follow', [SocialController::class, 'toggleFollow']);
 
         // ✅ BLOCKING: Keep separate block/unblock OR single toggle
-        Route::post('{userId}/block', [ProfileController::class, 'toggleBlock']); // Toggle block
-        Route::post('{userId}/unblock', [ProfileController::class, 'toggleBlock']); // Same method, different endpoint
+        Route::post('{userId}/block', [ProfileController::class, 'toggleBlock']);
+        Route::post('{userId}/unblock', [ProfileController::class, 'toggleBlock']);
 
         // ✅ ALTERNATIVE: If CommunicationController has separate methods
         // Route::post('{userId}/block', [CommunicationController::class, 'blockUser']);

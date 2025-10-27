@@ -273,18 +273,22 @@ class ItemController extends Controller
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|max:255',
             'description' => 'required|string|max:2000',
-            'category' => 'required|string|max:100', // Category name from frontend
+            'category' => 'required|string|max:100',
             'price' => 'required|numeric|min:0',
             'condition' => 'required|string|in:new,like_new,good,fair,poor',
             'images' => 'nullable|array|max:10',
             'images.*' => 'image|mimes:jpeg,png,jpg|max:5120',
             'location' => 'nullable|string|max:255',
-            'location_data' => 'nullable|string', // JSON location data
+            'location_data' => 'nullable|string',
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
             'contact_method' => 'nullable|string|in:chat,phone,email',
             'tags' => 'nullable|array',
             'tags.*' => 'string|max:50',
+            'category_type' => 'nullable|string|in:category,subcategory,child_subcategory',
+            'category_id' => 'nullable|integer|exists:categories,id',
+            'subcategory_id' => 'nullable|integer|exists:sub_categories,id',
+            'child_subcategory_id' => 'nullable|integer|exists:child_sub_categories,id',
         ]);
 
         if ($validator->fails()) {
@@ -310,75 +314,94 @@ class ItemController extends Controller
             // Handle category - hybrid approach
             if ($request->has('category')) {
                 $categoryName = $request->input('category');
+                $categoryType = $request->input('category_type', null);
                 $data['category_name'] = $categoryName;
 
-                // Search in order: ChildSubCategory -> SubCategory -> Category
-                $childSubCategory = ChildSubCategory::where('name', $categoryName)
-                    ->where('is_active', true)
-                    ->with('subCategory.category')
-                    ->first();
+                if ($request->has('category_id') && $categoryType) {
+                    if ($categoryType === 'child_subcategory' && $request->has('child_subcategory_id')) {
+                        // It's a child subcategory - use the provided IDs
+                        $childSubCategory = ChildSubCategory::where('id', $request->input('child_subcategory_id'))
+                            ->where('is_active', true)
+                            ->with('subCategory.category')
+                            ->first();
 
-                $subCategory = SubCategory::where('name', $categoryName)
-                    ->where('is_active', true)
-                    ->with('category')
-                    ->first();
+                        if ($childSubCategory) {
+                            $data['child_sub_category_id'] = $childSubCategory->id;
+                            $data['sub_category_id'] = $childSubCategory->sub_category_id;
+                            $data['category_id'] = $childSubCategory->subCategory->category_id;
+                        }
+                    } elseif ($categoryType === 'subcategory' && $request->has('subcategory_id')) {
+                        // It's a subcategory - use the provided IDs
+                        $subCategory = SubCategory::where('id', $request->input('subcategory_id'))
+                            ->where('is_active', true)
+                            ->with('category')
+                            ->first();
 
-                $category = Category::where('name', $categoryName)
-                    ->where('is_active', true)
-                    ->first();
+                        if ($subCategory) {
+                            $data['sub_category_id'] = $subCategory->id;
+                            $data['category_id'] = $subCategory->category_id;
+                            $data['child_sub_category_id'] = null;
+                        }
+                    } elseif ($categoryType === 'category') {
+                        // It's a main category - use the provided ID
+                        $category = Category::where('id', $request->input('category_id'))
+                            ->where('is_active', true)
+                            ->first();
 
-                if ($childSubCategory) {
-
-                    $data['child_sub_category_id'] = $childSubCategory->id;
-                    $data['sub_category_id'] = $childSubCategory->sub_category_id;
-                    $data['category_id'] = $childSubCategory->subCategory->category_id;
-                    $data['category_name'] = $categoryName;
-
-                    Log::info("Child sub category found", [
-                        'name' => $categoryName,
-                        'child_sub_category_id' => $childSubCategory->id,
-                        'sub_category_id' => $data['sub_category_id'],
-                        'category_id' => $data['category_id']
-                    ]);
-                } elseif ($subCategory) {
-                    $data['sub_category_id'] = $subCategory->id;
-                    $data['category_id'] = $subCategory->category_id;
-                    $data['child_sub_category_id'] = null;
-                    $data['category_name'] = $categoryName;
-
-                    Log::info("Sub category found", [
-                        'name' => $categoryName,
-                        'sub_category_id' => $subCategory->id,
-                        'category_id' => $data['category_id']
-                    ]);
-                } elseif ($category) {
-                    // It's a main category
-                    $data['category_id'] = $category->id;
-                    $data['sub_category_id'] = null;
-                    $data['child_sub_category_id'] = null;
-                    $data['category_name'] = $categoryName;
-
-                    Log::info("Category found", [
-                        'name' => $categoryName,
-                        'id' => $category->id
-                    ]);
+                        if ($category) {
+                            $data['category_id'] = $category->id;
+                            $data['sub_category_id'] = null;
+                            $data['child_sub_category_id'] = null;
+                        }
+                    }
                 } else {
-                    $category = Category::create([
-                        'name' => $categoryName,
-                        'slug' => Str::slug($categoryName),
-                        'description' => "Auto-created category for {$categoryName}",
-                        'is_active' => true,
-                    ]);
+                    Log::info('⚠️ Category IDs not provided, falling back to name search');
+                    $category = Category::where('name', $categoryName)
+                        ->where('is_active', true)
+                        ->first();
 
-                    $data['category_id'] = $category->id;
-                    $data['sub_category_id'] = null;
-                    $data['child_sub_category_id'] = null;
-                    $data['category_name'] = $categoryName;
+                    if ($category) {
+                        // Found a main category
+                        $data['category_id'] = $category->id;
+                        $data['sub_category_id'] = null;
+                        $data['child_sub_category_id'] = null;
+                    } else {
+                        // Try subcategory
+                        $subCategory = SubCategory::where('name', $categoryName)
+                            ->where('is_active', true)
+                            ->with('category')
+                            ->first();
 
-                    Log::info("New category created", [
-                        'name' => $categoryName,
-                        'id' => $category->id
-                    ]);
+                        if ($subCategory) {
+                            $data['sub_category_id'] = $subCategory->id;
+                            $data['category_id'] = $subCategory->category_id;
+                            $data['child_sub_category_id'] = null;
+                        } else {
+                            // Try child subcategory
+                            $childSubCategory = ChildSubCategory::where('name', $categoryName)
+                                ->where('is_active', true)
+                                ->with('subCategory.category')
+                                ->first();
+
+                            if ($childSubCategory) {
+                                $data['child_sub_category_id'] = $childSubCategory->id;
+                                $data['sub_category_id'] = $childSubCategory->sub_category_id;
+                                $data['category_id'] = $childSubCategory->subCategory->category_id;
+                            } else {
+                                // Create new category as fallback
+                                $category = Category::create([
+                                    'name' => $categoryName,
+                                    'slug' => Str::slug($categoryName),
+                                    'description' => "Auto-created category for {$categoryName}",
+                                    'is_active' => true,
+                                ]);
+
+                                $data['category_id'] = $category->id;
+                                $data['sub_category_id'] = null;
+                                $data['child_sub_category_id'] = null;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -476,20 +499,16 @@ class ItemController extends Controller
             ], 404);
         }
 
-        // Debug incoming request
-        Log::info('Update request all data: ', $request->all());
-        Log::info('Request files: ', array_keys($request->allFiles()));
-
         $validator = Validator::make($request->all(), [
             'title' => 'sometimes|required|string|max:255',
             'description' => 'sometimes|required|string|max:2000',
-            'category' => 'sometimes|required|string|max:100', // ✅ FIXED: Accept category as string
+            'category' => 'sometimes|required|string|max:100',
             'price' => 'sometimes|required|numeric|min:0',
             'condition' => 'sometimes|required|string|in:new,like_new,good,fair,poor',
             'location' => 'nullable|string|max:255',
-            'location_data' => 'nullable|string', // ✅ ADD: For location data
-            'latitude' => 'nullable|numeric', // ✅ ADD: For coordinates
-            'longitude' => 'nullable|numeric', // ✅ ADD: For coordinates
+            'location_data' => 'nullable|string',
+            'latitude' => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
             'contact_method' => 'nullable|string|in:chat,phone,email',
             'tags' => 'nullable|array',
             'tags.*' => 'string|max:50',
@@ -497,10 +516,14 @@ class ItemController extends Controller
             'existing_images.*' => 'string',
             'new_images' => 'nullable|array|max:10',
             'new_images.*' => 'image|mimes:jpeg,png,jpg|max:5120',
+            'category_type' => 'nullable|string|in:category,subcategory,child_subcategory',
+            'category_id' => 'nullable|integer|exists:categories,id',
+            'subcategory_id' => 'nullable|integer|exists:sub_categories,id',
+            'child_subcategory_id' => 'nullable|integer|exists:child_sub_categories,id',
+            'category_full_path' => 'nullable|string|max:500',
         ]);
 
         if ($validator->fails()) {
-            Log::error('Validation failed: ', $validator->errors()->toArray());
             return response()->json([
                 'success' => false,
                 'errors' => $validator->errors()
@@ -508,7 +531,6 @@ class ItemController extends Controller
         }
 
         try {
-            // ✅ FIXED: Update basic item data with proper category handling
             $updateData = $request->only([
                 'title',
                 'description',
@@ -517,83 +539,102 @@ class ItemController extends Controller
                 'contact_method'
             ]);
 
-            // ✅ FIXED: Handle category - same as store method
             if ($request->has('category')) {
                 $categoryName = $request->input('category');
+                $categoryType = $request->input('category_type', null);
+                $updateData['category_name'] = $categoryName;
 
-                // Search in order: ChildSubCategory -> SubCategory -> Category
-                $childSubCategory = ChildSubCategory::where('name', $categoryName)
-                    ->where('is_active', true)
-                    ->with('subCategory.category')
-                    ->first();
+                if ($request->has('category_id') && $categoryType) {
+                    if ($categoryType === 'child_subcategory' && $request->has('child_subcategory_id')) {
+                        // It's a child subcategory - use the provided IDs
+                        $childSubCategory = ChildSubCategory::where('id', $request->input('child_subcategory_id'))
+                            ->where('is_active', true)
+                            ->with('subCategory.category')
+                            ->first();
 
-                $subCategory = SubCategory::where('name', $categoryName)
-                    ->where('is_active', true)
-                    ->with('category')
-                    ->first();
+                        if ($childSubCategory) {
+                            $updateData['child_sub_category_id'] = $childSubCategory->id;
+                            $updateData['sub_category_id'] = $childSubCategory->sub_category_id;
+                            $updateData['category_id'] = $childSubCategory->subCategory->category_id;
+                        }
+                    } elseif ($categoryType === 'subcategory' && $request->has('subcategory_id')) {
+                        // It's a subcategory - use the provided IDs
+                        $subCategory = SubCategory::where('id', $request->input('subcategory_id'))
+                            ->where('is_active', true)
+                            ->with('category')
+                            ->first();
 
-                $category = Category::where('name', $categoryName)
-                    ->where('is_active', true)
-                    ->first();
+                        if ($subCategory) {
+                            $updateData['sub_category_id'] = $subCategory->id;
+                            $updateData['category_id'] = $subCategory->category_id;
+                            $updateData['child_sub_category_id'] = null;
+                        }
+                    } elseif ($categoryType === 'category') {
+                        // It's a main category - use the provided ID
+                        $category = Category::where('id', $request->input('category_id'))
+                            ->where('is_active', true)
+                            ->first();
 
-                if ($childSubCategory) {
-                    // It's a child sub category
-                    $updateData['child_sub_category_id'] = $childSubCategory->id;
-                    $updateData['sub_category_id'] = $childSubCategory->sub_category_id;
-                    $updateData['category_id'] = $childSubCategory->subCategory->category_id;
-                    $updateData['category_name'] = $categoryName;
-
-                    Log::info("Child sub category found", [
-                        'name' => $categoryName,
-                        'child_sub_category_id' => $childSubCategory->id,
-                        'sub_category_id' => $updateData['sub_category_id'],
-                        'category_id' => $updateData['category_id']
-                    ]);
-                } elseif ($subCategory) {
-                    // It's a sub category - THIS IS YOUR CASE
-                    $updateData['sub_category_id'] = $subCategory->id;
-                    $updateData['category_id'] = $subCategory->category_id;
-                    $updateData['child_sub_category_id'] = null;
-                    $updateData['category_name'] = $categoryName;
-
-                    Log::info("Sub category found", [
-                        'name' => $categoryName,
-                        'sub_category_id' => $subCategory->id,
-                        'category_id' => $updateData['category_id']
-                    ]);
-                } elseif ($category) {
-                    // It's a main category
-                    $updateData['category_id'] = $category->id;
-                    $updateData['sub_category_id'] = null;
-                    $updateData['child_sub_category_id'] = null;
-                    $updateData['category_name'] = $categoryName;
-
-                    Log::info("Category found", [
-                        'name' => $categoryName,
-                        'id' => $category->id
-                    ]);
+                        if ($category) {
+                            $updateData['category_id'] = $category->id;
+                            $updateData['sub_category_id'] = null;
+                            $updateData['child_sub_category_id'] = null;
+                        }
+                    }
                 } else {
-                    // Name not found - create new category
-                    $category = Category::create([
-                        'name' => $categoryName,
-                        'slug' => Str::slug($categoryName),
-                        'description' => "Auto-created category for {$categoryName}",
-                        'is_active' => true,
-                    ]);
+                    $category = Category::where('name', $categoryName)
+                        ->where('is_active', true)
+                        ->first();
 
-                    $updateData['category_id'] = $category->id;
-                    $updateData['sub_category_id'] = null;
-                    $updateData['child_sub_category_id'] = null;
-                    $updateData['category_name'] = $categoryName;
+                    if ($category) {
+                        // Found a main category
+                        $updateData['category_id'] = $category->id;
+                        $updateData['sub_category_id'] = null;
+                        $updateData['child_sub_category_id'] = null;
 
-                    Log::info("New category created", [
-                        'name' => $categoryName,
-                        'id' => $category->id
-                    ]);
+                    } else {
+                        // Try subcategory
+                        $subCategory = SubCategory::where('name', $categoryName)
+                            ->where('is_active', true)
+                            ->with('category')
+                            ->first();
+
+                        if ($subCategory) {
+                            $updateData['sub_category_id'] = $subCategory->id;
+                            $updateData['category_id'] = $subCategory->category_id;
+                            $updateData['child_sub_category_id'] = null;
+
+                        } else {
+                            // Try child subcategory
+                            $childSubCategory = ChildSubCategory::where('name', $categoryName)
+                                ->where('is_active', true)
+                                ->with('subCategory.category')
+                                ->first();
+
+                            if ($childSubCategory) {
+                                $updateData['child_sub_category_id'] = $childSubCategory->id;
+                                $updateData['sub_category_id'] = $childSubCategory->sub_category_id;
+                                $updateData['category_id'] = $childSubCategory->subCategory->category_id;
+
+                            } else {
+                                // Create new category as fallback
+                                $category = Category::create([
+                                    'name' => $categoryName,
+                                    'slug' => Str::slug($categoryName),
+                                    'description' => "Auto-created category for {$categoryName}",
+                                    'is_active' => true,
+                                ]);
+
+                                $updateData['category_id'] = $category->id;
+                                $updateData['sub_category_id'] = null;
+                                $updateData['child_sub_category_id'] = null;
+                            }
+                        }
+                    }
                 }
             }
 
-            // ✅ FIXED: Handle location - same as store method
+            // Handle location - same as store method
             if ($request->has('location') && !empty($request->input('location'))) {
                 $locationString = $request->input('location');
                 $updateData['location'] = $locationString;
@@ -628,7 +669,6 @@ class ItemController extends Controller
 
                     if (!$location) {
                         $location = Location::create($locationData);
-                        Log::info("New location created for update", ['location_id' => $location->id]);
                     } else {
                         Log::info("Existing location found for update", ['location_id' => $location->id]);
                     }
@@ -639,15 +679,12 @@ class ItemController extends Controller
 
             // Handle tags
             if ($request->has('tags') && is_array($request->input('tags'))) {
-                $tags = array_filter($request->input('tags')); // Remove empty values
+                $tags = array_filter($request->input('tags')); 
                 $updateData['tags'] = json_encode($tags);
-                Log::info('Saving tags as JSON: ' . json_encode($tags));
             } else {
                 $updateData['tags'] = json_encode([]);
-                Log::info('No tags provided, saving empty array');
             }
 
-            Log::info('Final update data: ', $updateData);
             $item->update($updateData);
 
             // Handle image updates
@@ -656,9 +693,8 @@ class ItemController extends Controller
             // Add to history
             HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'update');
 
-            // ✅ FIXED: Load relationships including category and location
+            // Load relationships including category and location
             $updatedItem = $item->fresh()->load(['user', 'category', 'location', 'images']);
-            Log::info('Updated item tags: ' . $updatedItem->tags);
 
             return response()->json([
                 'success' => true,
@@ -666,8 +702,6 @@ class ItemController extends Controller
                 'message' => 'Item updated successfully'
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to update item: ' . $e->getMessage());
-            Log::error('Stack trace: ' . $e->getTraceAsString());
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update item',
@@ -675,6 +709,7 @@ class ItemController extends Controller
             ], 500);
         }
     }
+
     private function updateItemImages(Item $item, Request $request)
     {
         $existingImages = $request->input('existing_images', []);
