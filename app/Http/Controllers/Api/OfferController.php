@@ -37,7 +37,6 @@ class OfferController extends Controller
                         ->orWhere('receiver_id', $user->id);
                 });
 
-            // Apply tab-specific filtering BEFORE latestInChain
             switch ($tab) {
                 case 'received':
                     $offersQuery->where('receiver_id', $user->id)
@@ -71,13 +70,6 @@ class OfferController extends Controller
                 ])
                 ->orderBy('created_at', 'desc')
                 ->get();
-
-            \Log::info('Offers Query', [
-                'tab' => $tab,
-                'user_id' => $user->id,
-                'count' => $offers->count(),
-                'offer_ids' => $offers->pluck('id'),
-            ]);
 
             return response()->json([
                 'success' => true,
@@ -155,7 +147,7 @@ class OfferController extends Controller
             // Load all offers in this chain: root + counter offers ordered by created_at
             $offerChain = Offer::where('id', $rootOffer->id)
                 ->orWhere('parent_offer_id', $rootOffer->id)
-                ->with(['sender', 'receiver', 'parentOffer'])
+                ->with(['item.user','item.images','sender', 'receiver', 'parentOffer'])
                 ->orderBy('created_at', 'asc')
                 ->get();
 
