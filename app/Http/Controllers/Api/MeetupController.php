@@ -179,13 +179,13 @@ class MeetupController extends Controller
                 'authenticated_user_id' => $user->id,
                 'authenticated_user_name' => $user->name,
                 'type' => $request->type,
+                'is_offer_checkout' => $request->isOfferCheckout,
                 'items_count' => count($request->items),
                 'meetup_location' => $request->meetupLocation,
             ]);
 
             DB::beginTransaction();
 
-            // Create meetup records for each item
             $meetups = [];
             $itemsWithDetails = [];
 
@@ -200,17 +200,49 @@ class MeetupController extends Controller
                     ], 400);
                 }
 
-                // Determine buyer and seller
-                $sellerId = $item->user_id; // Item owner is always the seller
-                $buyerId = $user->id; // Authenticated user is the buyer
+                $sellerId = $item->user_id; 
+                $buyerId = null;
+                $isCurrentUserSeller = $user->id === $sellerId;
 
-                // Verify the authenticated user is not trying to buy their own item
-                if ($user->id === $sellerId) {
-                    DB::rollback();
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'You cannot create a meetup for your own item'
-                    ], 400);
+                if ($request->isOfferCheckout && isset($itemData['offerId'])) {
+                    $offer = Offer::find($itemData['offerId']);
+
+                    if (!$offer) {
+                        DB::rollback();
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Offer not found'
+                        ], 404);
+                    }
+
+                    $buyerId = $offer->sender_id == $sellerId
+                        ? $offer->receiver_id
+                        : $offer->sender_id;
+
+                    Log::info('📋 Offer details', [
+                        'offer_id' => $offer->id,
+                        'sender_id' => $offer->sender_id,
+                        'receiver_id' => $offer->receiver_id,
+                        'item_owner (seller_id)' => $sellerId,
+                        'determined_buyer_id' => $buyerId,
+                    ]);
+
+                    if ($user->id !== $buyerId && $user->id !== $sellerId) {
+                        DB::rollback();
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'You are not authorized to confirm this meetup'
+                        ], 403);
+                    }
+                } else {
+                    if ($isCurrentUserSeller) {
+                        DB::rollback();
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'You cannot create a meetup for your own item without an accepted offer'
+                        ], 400);
+                    }
+                    $buyerId = $user->id;
                 }
 
                 // Create meetup coordination record
@@ -233,10 +265,8 @@ class MeetupController extends Controller
                     'created_at' => now(),
                 ]);
 
-                // Update item status to 'reserved'
                 $item->update(['status' => 'reserved']);
 
-                // If this was from an accepted offer, update offer status
                 if ($request->isOfferCheckout && isset($itemData['offerId'])) {
                     $offer = Offer::find($itemData['offerId']);
                     if ($offer) {
@@ -244,7 +274,6 @@ class MeetupController extends Controller
                     }
                 }
 
-                // Prepare item details for response
                 $itemDetails = [
                     'itemId' => $item->id,
                     'title' => $item->title,
@@ -271,18 +300,18 @@ class MeetupController extends Controller
                     'item_id' => $item->id,
                     'buyer_id' => $buyerId,
                     'seller_id' => $sellerId,
+                    'confirmed_by_user_id' => $user->id,
+                    'confirmed_by_role' => $isCurrentUserSeller ? 'seller' : 'buyer',
                 ]);
             }
 
             DB::commit();
 
-            // Get buyer and seller details
             $buyer = User::select('id', 'name', 'phone', 'email', 'profile_image')
                 ->find($meetups[0]->buyer_id);
             $seller = User::select('id', 'name', 'phone', 'email', 'profile_image')
                 ->find($meetups[0]->seller_id);
 
-            // Calculate savings if offer checkout
             $savings = 0.0;
             $discountPercentage = 0.0;
             if ($request->isOfferCheckout && isset($itemsWithDetails[0])) {
@@ -292,7 +321,11 @@ class MeetupController extends Controller
                 $discountPercentage = $originalPrice > 0 ? (($savings / $originalPrice) * 100) : 0.0;
             }
 
-            // Prepare comprehensive response
+            $isCurrentUserSeller = $user->id === $seller->id;
+            $message = $isCurrentUserSeller
+                ? 'Meetup confirmed successfully! The buyer will be notified.'
+                : 'Meetup confirmed successfully! The seller will be notified.';
+
             $responseData = [
                 'meetups' => $meetups,
                 'items' => $itemsWithDetails,
@@ -325,11 +358,11 @@ class MeetupController extends Controller
                     'savings' => $savings,
                     'discount_percentage' => round($discountPercentage, 2),
                 ] : null,
-                'is_current_user_seller' => false, // Always false since authenticated user is buyer
-                'message' => 'Meetup confirmed successfully! The seller will be notified.',
+                'is_current_user_seller' => $isCurrentUserSeller,
+                'message' => $message,
             ];
 
-            // TODO: Send notifications to the seller about meetup coordination
+            // TODO: Send notifications to the other party about meetup coordination
             // NotificationService::sendMeetupNotification($meetups, $buyer, $seller);
 
             return response()->json([
@@ -353,6 +386,7 @@ class MeetupController extends Controller
             ], 500);
         }
     }
+
 
 
     /**
