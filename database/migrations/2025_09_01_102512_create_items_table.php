@@ -22,7 +22,7 @@ return new class extends Migration
             $table->foreignId('child_sub_category_id')->nullable()->constrained()->onDelete('set null');
             $table->decimal('price', 10, 2);
             $table->enum('condition', ['new', 'like_new', 'good', 'fair', 'poor']);
-            $table->enum('status', ['active', 'sold', 'archived'])->default('active');
+            $table->enum('status', ['active', 'sold', 'archived', 'inactive', 'reserved'])->default('active');
             $table->foreignId('location_id')->nullable()->constrained('locations')->cascadeOnDelete();
             $table->string('location')->nullable();
             $table->enum('contact_method', ['chat', 'phone', 'email'])->default('chat');

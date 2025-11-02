@@ -23,7 +23,7 @@ class MeetupController extends Controller
         try {
             $user = Auth::user();
             $role = $request->query('role', 'all');
-            $status = $request->query('status'); 
+            $status = $request->query('status');
 
             Log::info('📋 Fetching meetups', [
                 'user_id' => $user->id,
@@ -42,7 +42,7 @@ class MeetupController extends Controller
                 // Get both buyer and seller meetups
                 $query->where(function ($q) use ($user) {
                     $q->where('buyer_id', $user->id)
-                      ->orWhere('seller_id', $user->id);
+                        ->orWhere('seller_id', $user->id);
                 });
             }
 
@@ -58,9 +58,9 @@ class MeetupController extends Controller
                 'item:id,title,description,price,category_name,location,images',
                 'offer:id,amount,message,status'
             ])
-            ->orderBy('preferred_meetup_time', 'asc')
-            ->orderBy('created_at', 'desc')
-            ->get();
+                ->orderBy('preferred_meetup_time', 'asc')
+                ->orderBy('created_at', 'desc')
+                ->get();
 
             Log::info('✅ Meetups fetched', [
                 'count' => $meetups->count(),
@@ -75,7 +75,6 @@ class MeetupController extends Controller
                     'status' => $status,
                 ]
             ]);
-
         } catch (\Exception $e) {
             Log::error('❌ Failed to fetch meetups', [
                 'error' => $e->getMessage(),
@@ -129,7 +128,6 @@ class MeetupController extends Controller
                 'success' => true,
                 'data' => $meetup
             ]);
-
         } catch (\Exception $e) {
             Log::error('❌ Failed to fetch meetup details', [
                 'meetup_id' => $id,
@@ -164,6 +162,8 @@ class MeetupController extends Controller
             'agreedAmount' => 'required|numeric|min:0',
             'buyerNotes' => 'nullable|string|max:500',
             'acknowledgedSafety' => 'required|boolean',
+            'buyer_id' => 'required|integer|exists:users,id',
+            'seller_id' => 'required|integer|exists:users,id',
         ]);
 
         if ($validator->fails()) {
@@ -176,8 +176,33 @@ class MeetupController extends Controller
         try {
             $user = Auth::user();
 
+            // Verify that the authenticated user is either the buyer or seller
+            if ($user->id !== $request->buyer_id && $user->id !== $request->seller_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized: You are not part of this transaction'
+                ], 403);
+            }
+
+            // Fetch buyer and seller details
+            $buyer = User::select('id', 'name', 'phone', 'email', 'profile_image')
+                ->find($request->buyer_id);
+            $seller = User::select('id', 'name', 'phone', 'email', 'profile_image')
+                ->find($request->seller_id);
+
+            if (!$buyer || !$seller) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Buyer or seller not found'
+                ], 404);
+            }
+
             Log::info('📦 Meetup confirmation request', [
                 'user_id' => $user->id,
+                'buyer_id' => $request->buyer_id,
+                'buyer_name' => $buyer->name,
+                'seller_id' => $request->seller_id,
+                'seller_name' => $seller->name,
                 'type' => $request->type,
                 'items_count' => count($request->items),
                 'meetup_location' => $request->meetupLocation,
@@ -187,10 +212,11 @@ class MeetupController extends Controller
 
             // Create meetup records for each item
             $meetups = [];
-            
+            $itemsWithDetails = [];
+
             foreach ($request->items as $itemData) {
-                $item = Item::find($itemData['itemId']);
-                
+                $item = Item::with(['images', 'category'])->find($itemData['itemId']);
+
                 if (!$item || $item->status !== 'active') {
                     DB::rollback();
                     return response()->json([
@@ -199,10 +225,19 @@ class MeetupController extends Controller
                     ], 400);
                 }
 
+                // Verify that the seller_id matches the item owner
+                if ($item->user_id !== $request->seller_id) {
+                    DB::rollback();
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Seller ID does not match item owner'
+                    ], 400);
+                }
+
                 // Create meetup coordination record
                 $meetup = Meetup::create([
-                    'buyer_id' => $user->id,
-                    'seller_id' => $itemData['sellerId'],
+                    'buyer_id' => $request->buyer_id,
+                    'seller_id' => $request->seller_id,
                     'item_id' => $itemData['itemId'],
                     'offer_id' => $itemData['offerId'] ?? null,
                     'agreed_price' => $itemData['agreedPrice'],
@@ -215,7 +250,7 @@ class MeetupController extends Controller
                     'payment_method' => $request->agreedPaymentMethod,
                     'buyer_notes' => $request->buyerNotes,
                     'acknowledged_safety' => $request->acknowledgedSafety,
-                    'status' => 'pending', // pending, confirmed, completed, cancelled
+                    'status' => 'pending',
                     'created_at' => now(),
                 ]);
 
@@ -230,33 +265,101 @@ class MeetupController extends Controller
                     }
                 }
 
+                // Prepare item details for response
+                $itemDetails = [
+                    'itemId' => $item->id,
+                    'title' => $item->title,
+                    'description' => $item->description,
+                    'condition' => $item->condition,
+                    'category' => $item->category_name,
+                    'itemLocation' => $item->location,
+                    'contact_method' => $item->contact_method,
+                    'images' => $item->images ? $item->images->pluck('image_url') : [],
+                    'tags' => $item->tags ?? [],
+                    'agreedPrice' => (float)$itemData['agreedPrice'],
+                    'originalPrice' => (float)($itemData['originalPrice'] ?? $item->price),
+                    'isOffer' => $itemData['isOffer'] ?? false,
+                    'offerId' => $itemData['offerId'] ?? null,
+                    'offerType' => $itemData['offerType'] ?? null,
+                    'offerAmount' => isset($itemData['offerAmount']) ? (float)$itemData['offerAmount'] : null,
+                ];
+
+                $itemsWithDetails[] = $itemDetails;
                 $meetups[] = $meetup;
 
                 Log::info('✅ Meetup created', [
                     'meetup_id' => $meetup->id,
                     'item_id' => $item->id,
-                    'buyer_id' => $user->id,
-                    'seller_id' => $itemData['sellerId'],
+                    'buyer_id' => $request->buyer_id,
+                    'seller_id' => $request->seller_id,
                 ]);
             }
 
             DB::commit();
 
-            // TODO: Send notifications to sellers about meetup coordination
-            // NotificationService::sendMeetupNotification($meetups);
+            // Determine the notification message based on who is confirming
+            $message = $user->id === $request->buyer_id
+                ? 'Meetup confirmed successfully! The seller will be notified.'
+                : 'Meetup confirmed successfully! The buyer will be notified.';
+
+            // Calculate savings if offer checkout
+            $savings = 0.0;
+            $discountPercentage = 0.0;
+            if ($request->isOfferCheckout && isset($itemsWithDetails[0])) {
+                $originalPrice = $itemsWithDetails[0]['originalPrice'];
+                $agreedPrice = $itemsWithDetails[0]['agreedPrice'];
+                $savings = $originalPrice - $agreedPrice;
+                $discountPercentage = $originalPrice > 0 ? (($savings / $originalPrice) * 100) : 0.0;
+            }
+
+            // Prepare comprehensive response
+            $responseData = [
+                'meetups' => $meetups,
+                'items' => $itemsWithDetails,
+                'buyer' => [
+                    'id' => $buyer->id,
+                    'name' => $buyer->name,
+                    'phone' => $buyer->phone,
+                    'email' => $buyer->email,
+                    'profile_image' => $buyer->full_profile_image_url,
+                ],
+                'seller' => [
+                    'id' => $seller->id,
+                    'name' => $seller->name,
+                    'phone' => $seller->phone,
+                    'email' => $seller->email,
+                    'profile_image' => $seller->full_profile_image_url,
+                ],
+                'meetup_details' => [
+                    'location' => $request->meetupLocation,
+                    'location_type' => $request->meetupLocationType,
+                    'location_details' => $request->meetupLocationDetails,
+                    'preferred_time' => $request->preferredMeetupTime,
+                    'alternative_time' => $request->alternativeMeetupTime,
+                    'payment_method' => $request->agreedPaymentMethod,
+                    'agreed_amount' => (float)$request->agreedAmount,
+                    'buyer_notes' => $request->buyerNotes,
+                ],
+                'offer_details' => $request->isOfferCheckout ? [
+                    'is_offer_checkout' => true,
+                    'savings' => $savings,
+                    'discount_percentage' => round($discountPercentage, 2),
+                ] : null,
+                'is_current_user_seller' => $user->id === $request->seller_id,
+                'message' => $message,
+            ];
+
+            // TODO: Send notifications to the other party about meetup coordination
+            // NotificationService::sendMeetupNotification($meetups, $buyer, $seller);
 
             return response()->json([
                 'success' => true,
-                'data' => [
-                    'meetups' => $meetups,
-                    'message' => 'Meetup confirmed successfully! The seller will be notified.',
-                ],
+                'data' => $responseData,
                 'message' => 'Meetup confirmed successfully'
             ], 201);
-
         } catch (\Exception $e) {
             DB::rollback();
-            
+
             Log::error('❌ Failed to confirm meetup', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
@@ -270,6 +373,7 @@ class MeetupController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Mark meetup as completed (after successful exchange)
@@ -349,7 +453,6 @@ class MeetupController extends Controller
                 'data' => $meetup->fresh(),
                 'message' => 'Meetup marked as completed successfully'
             ]);
-
         } catch (\Exception $e) {
             DB::rollback();
 
@@ -448,7 +551,6 @@ class MeetupController extends Controller
                 'data' => $meetup->fresh(),
                 'message' => 'Meetup cancelled successfully'
             ]);
-
         } catch (\Exception $e) {
             DB::rollback();
 

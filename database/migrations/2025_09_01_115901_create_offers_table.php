@@ -19,7 +19,7 @@ return new class extends Migration
             $table->foreignId('parent_offer_id')->nullable()->constrained('offers')->cascadeOnDelete();
             $table->decimal('amount', 10, 2);
             $table->text('message')->nullable();
-            $table->enum('status', ['pending', 'accepted', 'rejected', 'cancelled'])->default('pending');
+            $table->enum('status', ['pending', 'accepted', 'rejected', 'cancelled', 'meetup_scheduled'])->default('pending');
             $table->enum('offer_type', ['initial', 'counter'])->default('initial');
             $table->timestamp('accepted_at')->nullable();
             $table->timestamp('rejected_at')->nullable();
