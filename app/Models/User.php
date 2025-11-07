@@ -22,6 +22,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'bio',
         'date_of_birth',
         'gender',
+        'user_type',
         'university',
         'course',
         'semester',
@@ -63,6 +64,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'phone_verified_at' => 'datetime',
         'date_of_birth' => 'date',
         'student_verified' => 'boolean',
+        'user_type' => 'string',
         'is_active' => 'boolean',
         'notifications_enabled' => 'boolean',
         'email_notifications' => 'boolean',
@@ -424,5 +426,54 @@ class User extends Authenticatable implements MustVerifyEmail
     public function hasWishlisted(Item $item): bool
     {
         return $this->wishlistedItems()->where('item_id', $item->id)->exists();
+    }
+
+    public function isNormal(): bool
+    {
+        return $this->user_type === 'normal';
+    }
+
+    public function isPremium(): bool
+    {
+        return $this->user_type === 'premium';
+    }
+
+    public function isGold(): bool
+    {
+        return $this->user_type === 'gold';
+    }
+
+    public function hasSubscription(): bool
+    {
+        return in_array($this->user_type, ['premium', 'gold']);
+    }
+
+    public function upgradeTo(string $type): bool
+    {
+        if (!in_array($type, ['normal', 'premium', 'gold'])) {
+            return false;
+        }
+
+        return $this->update(['user_type' => $type]);
+    }
+
+    public function scopeNormalUsers($query)
+    {
+        return $query->where('user_type', 'normal');
+    }
+
+    public function scopePremiumUsers($query)
+    {
+        return $query->where('user_type', 'premium');
+    }
+
+    public function scopeGoldUsers($query)
+    {
+        return $query->where('user_type', 'gold');
+    }
+
+    public function scopeSubscribedUsers($query)
+    {
+        return $query->whereIn('user_type', ['premium', 'gold']);
     }
 }

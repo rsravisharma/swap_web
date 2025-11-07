@@ -31,6 +31,7 @@ return new class extends Migration
             $table->text('bio')->nullable();
             $table->date('date_of_birth')->nullable();
             $table->enum('gender', ['male', 'female', 'other'])->nullable();
+            $table->enum('user_type', ['normal', 'premium', 'gold'])->default('normal');
 
             // Academic information
             $table->string('university', 255)->nullable();
@@ -39,7 +40,7 @@ return new class extends Migration
             $table->string('student_id')->nullable();
             $table->boolean('is_student')->default(false);
             $table->boolean('student_verified')->default(false);
-            $table->string('student_id_document')->nullable(); // Path to uploaded student ID
+            $table->string('student_id_document')->nullable();
 
             // Location information
             $table->string('city')->nullable();
@@ -76,8 +77,8 @@ return new class extends Migration
             $table->decimal('seller_rating', 3, 2)->default(0.00);
             $table->integer('total_reviews')->default(0);
 
-            $table->integer('total_listings')->default(0); // Total items listed
-            $table->integer('active_listings')->default(0); // Currently active listings
+            $table->integer('total_listings')->default(0);
+            $table->integer('active_listings')->default(0);
             $table->integer('followers_count')->default(0);
             $table->integer('following_count')->default(0);
             $table->timestamp('stats_last_updated')->nullable();
@@ -92,6 +93,8 @@ return new class extends Migration
             $table->index('phone');
             $table->index('email_verified_at');
             $table->index(['email', 'email_verified_at']);
+            $table->index('user_type');
+
             // Indexes for performance
             $table->index(['email', 'phone']);
             $table->index(['university', 'course']);

@@ -190,7 +190,15 @@ class MeetupController extends Controller
             $itemsWithDetails = [];
 
             foreach ($request->items as $itemData) {
-                $item = Item::with(['images', 'category', 'user'])->find($itemData['itemId']);
+                // Load item with images relationship (ordered by 'order' field, primary first)
+                $item = Item::with([
+                    'images' => function ($query) {
+                        $query->orderBy('is_primary', 'desc')
+                            ->orderBy('order', 'asc');
+                    },
+                    'category',
+                    'user'
+                ])->find($itemData['itemId']);
 
                 if (!$item || $item->status !== 'active') {
                     DB::rollback();
@@ -200,7 +208,7 @@ class MeetupController extends Controller
                     ], 400);
                 }
 
-                $sellerId = $item->user_id; 
+                $sellerId = $item->user_id;
                 $buyerId = null;
                 $isCurrentUserSeller = $user->id === $sellerId;
 
@@ -274,6 +282,21 @@ class MeetupController extends Controller
                     }
                 }
 
+                // Prepare images array with proper URLs using the ItemImage model
+                $images = [];
+                if ($item->images && $item->images->count() > 0) {
+                    foreach ($item->images as $image) {
+                        $images[] = [
+                            'id' => $image->id,
+                            'url' => $image->url, // Uses the getUrlAttribute accessor
+                            'is_primary' => $image->is_primary,
+                            'order' => $image->order,
+                            'filename' => $image->filename,
+                        ];
+                    }
+                }
+
+                // Prepare item details for response
                 $itemDetails = [
                     'itemId' => $item->id,
                     'title' => $item->title,
@@ -282,7 +305,8 @@ class MeetupController extends Controller
                     'category' => $item->category_name,
                     'itemLocation' => $item->location,
                     'contact_method' => $item->contact_method,
-                    'images' => $item->images ? $item->images->pluck('image_url') : [],
+                    'images' => $images, // Full image objects with metadata
+                    'primary_image' => !empty($images) ? $images[0]['url'] : null, // First image (primary)
                     'tags' => $item->tags ?? [],
                     'agreedPrice' => (float)$itemData['agreedPrice'],
                     'originalPrice' => (float)($itemData['originalPrice'] ?? $item->price),
@@ -290,6 +314,7 @@ class MeetupController extends Controller
                     'offerId' => $itemData['offerId'] ?? null,
                     'offerType' => $itemData['offerType'] ?? null,
                     'offerAmount' => isset($itemData['offerAmount']) ? (float)$itemData['offerAmount'] : null,
+                    'offerMessage' => isset($itemData['offerMessage']) ? $itemData['offerMessage'] : null,
                 ];
 
                 $itemsWithDetails[] = $itemDetails;
@@ -302,6 +327,7 @@ class MeetupController extends Controller
                     'seller_id' => $sellerId,
                     'confirmed_by_user_id' => $user->id,
                     'confirmed_by_role' => $isCurrentUserSeller ? 'seller' : 'buyer',
+                    'images_count' => count($images),
                 ]);
             }
 
@@ -386,6 +412,7 @@ class MeetupController extends Controller
             ], 500);
         }
     }
+
 
 
 
