@@ -31,7 +31,8 @@ return new class extends Migration
             $table->text('bio')->nullable();
             $table->date('date_of_birth')->nullable();
             $table->enum('gender', ['male', 'female', 'other'])->nullable();
-            $table->enum('user_type', ['normal', 'premium', 'gold'])->default('normal');
+            $table->foreignId('subscription_plan_id')->nullable()->constrained();
+            $table->integer('coins')->default(0);
 
             // Academic information
             $table->string('university', 255)->nullable();
@@ -85,6 +86,9 @@ return new class extends Migration
 
             // Timestamps
             $table->timestamp('last_active_at')->nullable();
+            $table->timestamp('last_login_at')->nullable();
+            $table->integer('login_streak_days')->default(0);
+            $table->boolean('monthly_coins_awarded')->default(false);
             $table->rememberToken();
             $table->timestamps();
 
