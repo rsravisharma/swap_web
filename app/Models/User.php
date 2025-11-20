@@ -14,6 +14,8 @@ class User extends Authenticatable implements MustVerifyEmail
     use HasApiTokens, HasFactory, Notifiable;
 
     protected $fillable = [
+        'referral_code',
+        'referred_by',
         'name',
         'email',
         'phone',
@@ -82,6 +84,26 @@ class User extends Authenticatable implements MustVerifyEmail
         'is_email_verified',
         'profile_completion_percentage',
     ];
+
+    public function referrer()
+    {
+        return $this->belongsTo(User::class, 'referred_by');
+    }
+
+    // Users that were referred by this user
+    public function referrals()
+    {
+        return $this->hasMany(User::class, 'referred_by');
+    }
+
+    public static function generateUniqueReferralCode($length = 8): string
+    {
+        do {
+            $code = strtoupper(substr(bin2hex(random_bytes($length)), 0, $length));
+        } while (self::where('referral_code', $code)->exists());
+
+        return $code;
+    }
 
     // Relationships
     public function addresses()

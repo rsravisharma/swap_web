@@ -13,6 +13,8 @@ return new class extends Migration
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
+            $table->string('referral_code')->unique()->nullable();
+            $table->foreignId('referred_by')->nullable()->constrained('users')->onDelete('set null');
             $table->string('name');
             $table->string('email')->nullable();
             $table->timestamp('email_verified_at')->nullable();

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Models\User;
 use App\Http\Controllers\Controller;
 use App\Models\EmailVerificationCode;
+use App\Models\SubscriptionPlan;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -26,6 +27,11 @@ class AuthController extends Controller
     /**
      * User registration
      */
+
+    protected function getDefaultSubscriptionPlanId()
+    {
+        return SubscriptionPlan::where('name', 'Basic')->value('id') ?? null;
+    }
 
     public function generateAblyToken(Request $request)
     {
@@ -127,6 +133,14 @@ class AuthController extends Controller
                 Log::info("Deleted unverified user record for email: {$request->email}");
             }
 
+            $referralCode = $request->input('ref');
+            $referrer = null;
+
+            if ($referralCode) {
+                $referrer = User::where('referral_code', $referralCode)->first();
+            }
+
+
             // Create new user
             $user = User::create([
                 'name' => $request->name,
@@ -137,6 +151,11 @@ class AuthController extends Controller
                 'course' => $request->course,
                 'semester' => $request->semester,
                 'email_verified_at' => null,
+                'coins' => 50, // initial coins for new user
+                'referral_code' => User::generateUniqueReferralCode(),
+                'referred_by' => $referrer ? $referrer->id : null,
+                // Assign default or requested subscription plan ID
+                'subscription_plan_id' => $request->input('subscription_plan_id') ?? $this->getDefaultSubscriptionPlanId(),
             ]);
 
             // Send OTP for verification
@@ -261,14 +280,17 @@ class AuthController extends Controller
                 'user' => [
                     'id' => $user->id,
                     'name' => $user->name,
+                    'referral_code' => $user->referral_code,
                     'email' => $user->email,
                     'phone' => $user->phone ?? '',
+                    'coins' => $user->coins,
                     'profile_image' => $user->profile_image ?? '',
                     'university' => $user->university ?? '',
                     'course' => $user->course ?? '',
                     'semester' => $user->semester ?? '',
                     'is_verified' => true,
                     'email_verified_at' => $user->email_verified_at,
+                    'subscription_plan' => $user->subscriptionPlan,
                 ],
                 'token' => $token
             ], 200);
@@ -368,15 +390,18 @@ class AuthController extends Controller
             'message' => 'Login successful',
             'user' => [
                 'id' => $user->id,
+                'referral_code' => $user->referral_code,
                 'name' => $user->name,
                 'email' => $user->email,
                 'phone' => $user->phone,
+                'coins' => $user->coins,
                 'profile_image' => $user->profile_image,
                 'university' => $user->university,
                 'course' => $user->course,
                 'semester' => $user->semester,
                 'is_verified' => $user->email_verified_at !== null,
                 'student_verified' => $user->student_verified ?? false,
+                'subscription_plan' => $user->subscriptionPlan,
             ],
             'token' => $token
         ]);
@@ -542,9 +567,11 @@ class AuthController extends Controller
                         'message' => 'Google sign-in successful',
                         'user' => [
                             'id' => $existingUser->id,
+                            'referral_code' => $existingUser->referral_code,
                             'name' => $existingUser->name,
                             'email' => $existingUser->email,
                             'phone' => $existingUser->phone,
+                            'coins' => $existingUser->coins,
                             'profile_image' => $existingUser->profile_image,
                             'university' => $existingUser->university,
                             'course' => $existingUser->course,
@@ -585,6 +612,14 @@ class AuthController extends Controller
                 'has_fcm_token' => !empty($request->fcm_token)
             ]);
 
+            $referralCode = $request->input('ref');
+
+            // Find the referrer user if referral code provided
+            $referrer = null;
+            if ($referralCode) {
+                $referrer = User::where('referral_code', $referralCode)->first();
+            }
+
             $user = User::create([
                 'name' => $name,
                 'email' => $email,
@@ -593,6 +628,10 @@ class AuthController extends Controller
                 'email_verified_at' => now(), // Google emails are pre-verified
                 'password' => Hash::make(Str::random(24)), // Random password for social login
                 'fcm_token' => $request->fcm_token,
+                'coins' => 50,
+                'referral_code' => User::generateUniqueReferralCode(),
+                'referred_by' => $referrer ? $referrer->id : null,
+                'subscription_plan_id' => $this->getDefaultSubscriptionPlanId(),
             ]);
 
             Log::info('New user created successfully', [
@@ -613,15 +652,18 @@ class AuthController extends Controller
                 'message' => 'Google sign-in successful',
                 'user' => [
                     'id' => $user->id,
+                    'referral_code' => $user->referral_code,
                     'name' => $user->name,
                     'email' => $user->email,
                     'phone' => $user->phone,
+                    'coins' => $user->coins,
                     'profile_image' => $user->profile_image,
                     'university' => $user->university,
                     'course' => $user->course,
                     'semester' => $user->semester,
                     'is_verified' => true,
                     'student_verified' => $user->student_verified ?? false,
+                    'subscription_plan' => $user->subscriptionPlan,
                 ],
                 'token' => $token
             ]);
