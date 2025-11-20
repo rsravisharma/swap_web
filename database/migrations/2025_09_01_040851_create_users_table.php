@@ -99,7 +99,6 @@ return new class extends Migration
             $table->index('phone');
             $table->index('email_verified_at');
             $table->index(['email', 'email_verified_at']);
-            $table->index('user_type');
 
             // Indexes for performance
             $table->index(['email', 'phone']);
