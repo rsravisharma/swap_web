@@ -360,6 +360,8 @@ class AuthController extends Controller
         $validator = Validator::make($request->all(), [
             'email' => 'required|string|email',
             'password' => 'required|string',
+            'fcm_token' => 'nullable|string',
+            'device_type' => 'nullable|string|in:android,ios',
         ]);
 
         if ($validator->fails()) {
@@ -370,6 +372,34 @@ class AuthController extends Controller
             ], 422);
         }
 
+        // ✅ Check if user exists and is active before attempting login
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid credentials'
+            ], 401);
+        }
+
+        // ✅ Check if user is blocked
+        if ($user->is_blocked) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account has been blocked. Please contact support.',
+                'reason' => $user->blocked_reason
+            ], 403);
+        }
+
+        // ✅ Check if user is active
+        if (!$user->is_active) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account is inactive. Please contact support.'
+            ], 403);
+        }
+
+        // Attempt authentication
         if (!Auth::attempt($request->only('email', 'password'))) {
             return response()->json([
                 'success' => false,
@@ -378,12 +408,26 @@ class AuthController extends Controller
         }
 
         $user = Auth::user();
+
+        // ✅ Update FCM token and device info if provided
+        if ($request->has('fcm_token')) {
+            $user->updateFCMToken(
+                $request->fcm_token,
+                $request->input('device_type')
+            );
+        }
+
+        // ✅ Update login streak and award coins
+        $streakData = $user->updateLoginStreak();
+
+        // ✅ Update last login timestamp
+        $user->update(['last_login_at' => now()]);
+
+        // Create token
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        // Update FCM token if provided
-        if ($request->has('fcm_token')) {
-            $user->update(['fcm_token' => $request->fcm_token]);
-        }
+        // ✅ Load relationships
+        $user->load('subscriptionPlan');
 
         return response()->json([
             'success' => true,
@@ -395,17 +439,28 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'phone' => $user->phone,
                 'coins' => $user->coins,
-                'profile_image' => $user->profile_image,
+                'profile_image' => $user->full_profile_image_url, 
                 'university' => $user->university,
                 'course' => $user->course,
                 'semester' => $user->semester,
+                'bio' => $user->bio,
                 'is_verified' => $user->email_verified_at !== null,
+                'is_phone_verified' => $user->is_phone_verified,
                 'student_verified' => $user->student_verified ?? false,
                 'subscription_plan' => $user->subscriptionPlan,
+                'login_streak_days' => $user->login_streak_days,
+                'total_listings' => $user->total_listings,
+                'items_sold' => $user->items_sold,
+                'items_bought' => $user->items_bought,
+                'seller_rating' => $user->seller_rating,
+                'followers_count' => $user->followers_count,
+                'following_count' => $user->following_count,
             ],
+            'streak' => $streakData, // ✅ Include streak info with coins awarded
             'token' => $token
-        ]);
+        ], 200);
     }
+
 
     /**
      * User logout
