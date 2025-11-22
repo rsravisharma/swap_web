@@ -357,6 +357,9 @@ class AuthController extends Controller
      */
     public function login(Request $request): JsonResponse
     {
+        Log::info('=== Login Attempt Started ===');
+        Log::info('Email: ' . $request->email);
+
         $validator = Validator::make($request->all(), [
             'email' => 'required|string|email',
             'password' => 'required|string',
@@ -365,6 +368,9 @@ class AuthController extends Controller
         ]);
 
         if ($validator->fails()) {
+            Log::warning('Login validation failed', [
+                'errors' => $validator->errors()->toArray()
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
@@ -372,93 +378,146 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // ✅ Check if user exists and is active before attempting login
-        $user = User::where('email', $request->email)->first();
+        try {
+            Log::info('Step 1: Finding user');
+            $user = User::where('email', $request->email)->first();
 
-        if (!$user) {
+            if (!$user) {
+                Log::warning('User not found');
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid credentials'
+                ], 401);
+            }
+
+            Log::info('Step 2: User found', ['user_id' => $user->id]);
+
+            // Check if user is blocked
+            if ($user->is_blocked) {
+                Log::warning('User is blocked', ['user_id' => $user->id]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your account has been blocked. Please contact support.',
+                    'reason' => $user->blocked_reason
+                ], 403);
+            }
+
+            // Check if user is active
+            if (!$user->is_active) {
+                Log::warning('User is inactive', ['user_id' => $user->id]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your account is inactive. Please contact support.'
+                ], 403);
+            }
+
+            Log::info('Step 3: Attempting authentication');
+            // Attempt authentication
+            if (!Auth::attempt($request->only('email', 'password'))) {
+                Log::warning('Authentication failed - wrong password');
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid credentials'
+                ], 401);
+            }
+
+            Log::info('Step 4: Authentication successful');
+            $user = Auth::user();
+
+            // Update FCM token and device info if provided
+            if ($request->has('fcm_token')) {
+                Log::info('Step 5: Updating FCM token');
+                try {
+                    $user->updateFCMToken(
+                        $request->fcm_token,
+                        $request->input('device_type')
+                    );
+                    Log::info('FCM token updated');
+                } catch (\Exception $e) {
+                    Log::error('FCM token update failed', ['error' => $e->getMessage()]);
+                }
+            }
+
+            Log::info('Step 6: Updating login streak');
+            try {
+                $streakData = $user->updateLoginStreak();
+                Log::info('Login streak updated', $streakData);
+            } catch (\Exception $e) {
+                Log::error('Login streak update failed', ['error' => $e->getMessage()]);
+                $streakData = ['streak' => 0, 'coins_awarded' => 0];
+            }
+
+            Log::info('Step 7: Updating last login timestamp');
+            try {
+                $user->update(['last_login_at' => now()]);
+                Log::info('Last login updated');
+            } catch (\Exception $e) {
+                Log::error('Last login update failed', ['error' => $e->getMessage()]);
+            }
+
+            Log::info('Step 8: Creating token');
+            try {
+                $token = $user->createToken('auth_token')->plainTextToken;
+                Log::info('Token created successfully');
+            } catch (\Exception $e) {
+                Log::error('Token creation failed', ['error' => $e->getMessage()]);
+                throw $e;
+            }
+
+            Log::info('Step 9: Loading relationships');
+            try {
+                $user->load('subscriptionPlan');
+                Log::info('Subscription plan loaded');
+            } catch (\Exception $e) {
+                Log::error('Loading subscription plan failed', ['error' => $e->getMessage()]);
+                // Continue without subscription plan
+            }
+
+            Log::info('Step 10: Building response');
+            return response()->json([
+                'success' => true,
+                'message' => 'Login successful',
+                'user' => [
+                    'id' => $user->id,
+                    'referral_code' => $user->referral_code,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                    'coins' => $user->coins,
+                    'profile_image' => $user->full_profile_image_url,
+                    'university' => $user->university,
+                    'course' => $user->course,
+                    'semester' => $user->semester,
+                    'bio' => $user->bio,
+                    'is_verified' => $user->email_verified_at !== null,
+                    'is_phone_verified' => $user->is_phone_verified,
+                    'student_verified' => $user->student_verified ?? false,
+                    'subscription_plan' => $user->subscriptionPlan,
+                    'login_streak_days' => $user->login_streak_days,
+                    'total_listings' => $user->total_listings,
+                    'items_sold' => $user->items_sold,
+                    'items_bought' => $user->items_bought,
+                    'seller_rating' => $user->seller_rating,
+                    'followers_count' => $user->followers_count,
+                    'following_count' => $user->following_count,
+                ],
+                'streak' => $streakData,
+                'token' => $token
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Login exception', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid credentials'
-            ], 401);
+                'message' => 'An error occurred during login',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
         }
-
-        // ✅ Check if user is blocked
-        if ($user->is_blocked) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Your account has been blocked. Please contact support.',
-                'reason' => $user->blocked_reason
-            ], 403);
-        }
-
-        // ✅ Check if user is active
-        if (!$user->is_active) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Your account is inactive. Please contact support.'
-            ], 403);
-        }
-
-        // Attempt authentication
-        if (!Auth::attempt($request->only('email', 'password'))) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid credentials'
-            ], 401);
-        }
-
-        $user = Auth::user();
-
-        // ✅ Update FCM token and device info if provided
-        if ($request->has('fcm_token')) {
-            $user->updateFCMToken(
-                $request->fcm_token,
-                $request->input('device_type')
-            );
-        }
-
-        // ✅ Update login streak and award coins
-        $streakData = $user->updateLoginStreak();
-
-        // ✅ Update last login timestamp
-        $user->update(['last_login_at' => now()]);
-
-        // Create token
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        // ✅ Load relationships
-        $user->load('subscriptionPlan');
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Login successful',
-            'user' => [
-                'id' => $user->id,
-                'referral_code' => $user->referral_code,
-                'name' => $user->name,
-                'email' => $user->email,
-                'phone' => $user->phone,
-                'coins' => $user->coins,
-                'profile_image' => $user->full_profile_image_url, 
-                'university' => $user->university,
-                'course' => $user->course,
-                'semester' => $user->semester,
-                'bio' => $user->bio,
-                'is_verified' => $user->email_verified_at !== null,
-                'is_phone_verified' => $user->is_phone_verified,
-                'student_verified' => $user->student_verified ?? false,
-                'subscription_plan' => $user->subscriptionPlan,
-                'login_streak_days' => $user->login_streak_days,
-                'total_listings' => $user->total_listings,
-                'items_sold' => $user->items_sold,
-                'items_bought' => $user->items_bought,
-                'seller_rating' => $user->seller_rating,
-                'followers_count' => $user->followers_count,
-                'following_count' => $user->following_count,
-            ],
-            'streak' => $streakData, // ✅ Include streak info with coins awarded
-            'token' => $token
-        ], 200);
     }
 
 
