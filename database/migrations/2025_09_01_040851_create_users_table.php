@@ -105,6 +105,7 @@ return new class extends Migration
             $table->index(['university', 'course']);
             $table->index(['is_active', 'student_verified']);
             $table->index('last_active_at');
+            $table->softDeletes();
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {

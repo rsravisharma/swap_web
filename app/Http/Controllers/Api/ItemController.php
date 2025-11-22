@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class ItemController extends Controller
 {
@@ -299,86 +300,48 @@ class ItemController extends Controller
         }
 
         try {
-            // Base item data
-            $data = [
-                'title' => $request->input('title'),
-                'description' => $request->input('description'),
-                'price' => $request->input('price'),
-                'condition' => $request->input('condition'),
-                'contact_method' => $request->input('contact_method', 'chat'),
-                'user_id' => Auth::id(),
-                'status' => 'active',
-                'tags' => $request->input('tags', []),
-            ];
+            // ✅ STEP 1: Check if user has enough coins BEFORE starting transaction
+            $user = Auth::user();
+            $requiredCoins = 10;
 
-            // Handle category - hybrid approach
-            if ($request->has('category')) {
-                $categoryName = $request->input('category');
-                $categoryType = $request->input('category_type', null);
-                $data['category_name'] = $categoryName;
+            if ($user->coins < $requiredCoins) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Insufficient coins. You need 10 coins to create a listing.',
+                    'current_coins' => $user->coins,
+                    'required_coins' => $requiredCoins
+                ], 400);
+            }
 
-                if ($request->has('category_id') && $categoryType) {
-                    if ($categoryType === 'child_subcategory' && $request->has('child_subcategory_id')) {
-                        // It's a child subcategory - use the provided IDs
-                        $childSubCategory = ChildSubCategory::where('id', $request->input('child_subcategory_id'))
-                            ->where('is_active', true)
-                            ->with('subCategory.category')
-                            ->first();
+            // ✅ STEP 2: Use database transaction for atomic operations
+            $item = DB::transaction(function () use ($request, $user, $requiredCoins) {
 
-                        if ($childSubCategory) {
-                            $data['child_sub_category_id'] = $childSubCategory->id;
-                            $data['sub_category_id'] = $childSubCategory->sub_category_id;
-                            $data['category_id'] = $childSubCategory->subCategory->category_id;
-                        }
-                    } elseif ($categoryType === 'subcategory' && $request->has('subcategory_id')) {
-                        // It's a subcategory - use the provided IDs
-                        $subCategory = SubCategory::where('id', $request->input('subcategory_id'))
-                            ->where('is_active', true)
-                            ->with('category')
-                            ->first();
+                // Deduct coins first (using the method from your User model)
+                if (!$user->deductCoins($requiredCoins)) {
+                    throw new \Exception('Failed to deduct coins');
+                }
 
-                        if ($subCategory) {
-                            $data['sub_category_id'] = $subCategory->id;
-                            $data['category_id'] = $subCategory->category_id;
-                            $data['child_sub_category_id'] = null;
-                        }
-                    } elseif ($categoryType === 'category') {
-                        // It's a main category - use the provided ID
-                        $category = Category::where('id', $request->input('category_id'))
-                            ->where('is_active', true)
-                            ->first();
+                // Base item data
+                $data = [
+                    'title' => $request->input('title'),
+                    'description' => $request->input('description'),
+                    'price' => $request->input('price'),
+                    'condition' => $request->input('condition'),
+                    'contact_method' => $request->input('contact_method', 'chat'),
+                    'user_id' => $user->id,
+                    'status' => 'active',
+                    'tags' => $request->input('tags', []),
+                ];
 
-                        if ($category) {
-                            $data['category_id'] = $category->id;
-                            $data['sub_category_id'] = null;
-                            $data['child_sub_category_id'] = null;
-                        }
-                    }
-                } else {
-                    Log::info('⚠️ Category IDs not provided, falling back to name search');
-                    $category = Category::where('name', $categoryName)
-                        ->where('is_active', true)
-                        ->first();
+                // Handle category - hybrid approach (your existing logic)
+                if ($request->has('category')) {
+                    $categoryName = $request->input('category');
+                    $categoryType = $request->input('category_type', null);
+                    $data['category_name'] = $categoryName;
 
-                    if ($category) {
-                        // Found a main category
-                        $data['category_id'] = $category->id;
-                        $data['sub_category_id'] = null;
-                        $data['child_sub_category_id'] = null;
-                    } else {
-                        // Try subcategory
-                        $subCategory = SubCategory::where('name', $categoryName)
-                            ->where('is_active', true)
-                            ->with('category')
-                            ->first();
-
-                        if ($subCategory) {
-                            $data['sub_category_id'] = $subCategory->id;
-                            $data['category_id'] = $subCategory->category_id;
-                            $data['child_sub_category_id'] = null;
-                        } else {
-                            // Try child subcategory
-                            $childSubCategory = ChildSubCategory::where('name', $categoryName)
+                    if ($request->has('category_id') && $categoryType) {
+                        if ($categoryType === 'child_subcategory' && $request->has('child_subcategory_id')) {
+                            $childSubCategory = ChildSubCategory::where('id', $request->input('child_subcategory_id'))
                                 ->where('is_active', true)
                                 ->with('subCategory.category')
                                 ->first();
@@ -387,75 +350,130 @@ class ItemController extends Controller
                                 $data['child_sub_category_id'] = $childSubCategory->id;
                                 $data['sub_category_id'] = $childSubCategory->sub_category_id;
                                 $data['category_id'] = $childSubCategory->subCategory->category_id;
-                            } else {
-                                // Create new category as fallback
-                                $category = Category::create([
-                                    'name' => $categoryName,
-                                    'slug' => Str::slug($categoryName),
-                                    'description' => "Auto-created category for {$categoryName}",
-                                    'is_active' => true,
-                                ]);
+                            }
+                        } elseif ($categoryType === 'subcategory' && $request->has('subcategory_id')) {
+                            $subCategory = SubCategory::where('id', $request->input('subcategory_id'))
+                                ->where('is_active', true)
+                                ->with('category')
+                                ->first();
 
+                            if ($subCategory) {
+                                $data['sub_category_id'] = $subCategory->id;
+                                $data['category_id'] = $subCategory->category_id;
+                                $data['child_sub_category_id'] = null;
+                            }
+                        } elseif ($categoryType === 'category') {
+                            $category = Category::where('id', $request->input('category_id'))
+                                ->where('is_active', true)
+                                ->first();
+
+                            if ($category) {
                                 $data['category_id'] = $category->id;
                                 $data['sub_category_id'] = null;
                                 $data['child_sub_category_id'] = null;
                             }
                         }
-                    }
-                }
-            }
+                    } else {
+                        Log::info('⚠️ Category IDs not provided, falling back to name search');
+                        $category = Category::where('name', $categoryName)
+                            ->where('is_active', true)
+                            ->first();
 
-            // Handle location - hybrid approach
-            if ($request->has('location') && !empty($request->input('location'))) {
-                $locationString = $request->input('location');
-                $data['location'] = $locationString;
+                        if ($category) {
+                            $data['category_id'] = $category->id;
+                            $data['sub_category_id'] = null;
+                            $data['child_sub_category_id'] = null;
+                        } else {
+                            $subCategory = SubCategory::where('name', $categoryName)
+                                ->where('is_active', true)
+                                ->with('category')
+                                ->first();
 
-                // Try to create structured location if we have coordinates
-                if ($request->has('latitude') && $request->has('longitude')) {
-                    $locationData = [
-                        'name' => $locationString,
-                        'full_address' => $locationString,
-                        'latitude' => $request->input('latitude'),
-                        'longitude' => $request->input('longitude'),
-                    ];
+                            if ($subCategory) {
+                                $data['sub_category_id'] = $subCategory->id;
+                                $data['category_id'] = $subCategory->category_id;
+                                $data['child_sub_category_id'] = null;
+                            } else {
+                                $childSubCategory = ChildSubCategory::where('name', $categoryName)
+                                    ->where('is_active', true)
+                                    ->with('subCategory.category')
+                                    ->first();
 
-                    // Parse additional location data if available
-                    if ($request->has('location_data')) {
-                        $additionalData = json_decode($request->input('location_data'), true);
-                        if ($additionalData && is_array($additionalData)) {
-                            $locationData = array_merge($locationData, [
-                                'city' => $additionalData['city'] ?? null,
-                                'state' => $additionalData['state'] ?? null,
-                                'country' => $additionalData['country'] ?? null,
-                                'postal_code' => $additionalData['postal_code'] ?? null,
-                                'type' => 'user_selected',
-                            ]);
+                                if ($childSubCategory) {
+                                    $data['child_sub_category_id'] = $childSubCategory->id;
+                                    $data['sub_category_id'] = $childSubCategory->sub_category_id;
+                                    $data['category_id'] = $childSubCategory->subCategory->category_id;
+                                } else {
+                                    $category = Category::create([
+                                        'name' => $categoryName,
+                                        'slug' => Str::slug($categoryName),
+                                        'description' => "Auto-created category for {$categoryName}",
+                                        'is_active' => true,
+                                    ]);
+
+                                    $data['category_id'] = $category->id;
+                                    $data['sub_category_id'] = null;
+                                    $data['child_sub_category_id'] = null;
+                                }
+                            }
                         }
                     }
-
-                    // Find existing location by coordinates or create new one
-                    $location = Location::where('latitude', $locationData['latitude'])
-                        ->where('longitude', $locationData['longitude'])
-                        ->first();
-
-                    if (!$location) {
-                        $location = Location::create($locationData);
-                        Log::info("New location created", ['location_id' => $location->id]);
-                    } else {
-                        Log::info("Existing location found", ['location_id' => $location->id]);
-                    }
-
-                    $data['location_id'] = $location->id;
                 }
-            }
 
-            // Create the item
-            $item = Item::create($data);
+                // Handle location (your existing logic)
+                if ($request->has('location') && !empty($request->input('location'))) {
+                    $locationString = $request->input('location');
+                    $data['location'] = $locationString;
 
-            // Handle image uploads
-            if ($request->hasFile('images')) {
-                $this->handleImageUploads($item, $request->file('images'));
-            }
+                    if ($request->has('latitude') && $request->has('longitude')) {
+                        $locationData = [
+                            'name' => $locationString,
+                            'full_address' => $locationString,
+                            'latitude' => $request->input('latitude'),
+                            'longitude' => $request->input('longitude'),
+                        ];
+
+                        if ($request->has('location_data')) {
+                            $additionalData = json_decode($request->input('location_data'), true);
+                            if ($additionalData && is_array($additionalData)) {
+                                $locationData = array_merge($locationData, [
+                                    'city' => $additionalData['city'] ?? null,
+                                    'state' => $additionalData['state'] ?? null,
+                                    'country' => $additionalData['country'] ?? null,
+                                    'postal_code' => $additionalData['postal_code'] ?? null,
+                                    'type' => 'user_selected',
+                                ]);
+                            }
+                        }
+
+                        $location = Location::where('latitude', $locationData['latitude'])
+                            ->where('longitude', $locationData['longitude'])
+                            ->first();
+
+                        if (!$location) {
+                            $location = Location::create($locationData);
+                            Log::info("New location created", ['location_id' => $location->id]);
+                        } else {
+                            Log::info("Existing location found", ['location_id' => $location->id]);
+                        }
+
+                        $data['location_id'] = $location->id;
+                    }
+                }
+
+                // Create the item
+                $item = Item::create($data);
+
+                // Handle image uploads
+                if ($request->hasFile('images')) {
+                    $this->handleImageUploads($item, $request->file('images'));
+                }
+
+                // ✅ STEP 3: Log coin transaction for audit trail
+                $this->logCoinTransaction($user, $requiredCoins, 'item_listing', $item->id);
+
+                return $item;
+            });
 
             // Add to history
             HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'create');
@@ -463,10 +481,15 @@ class ItemController extends Controller
             // Load relationships for response
             $item->load(['user', 'category', 'location', 'images']);
 
+            // ✅ STEP 4: Include updated coin balance in response
+            $user->refresh(); // Refresh to get updated coins value
+
             return response()->json([
                 'success' => true,
                 'data' => $item,
-                'message' => 'Item created successfully'
+                'message' => 'Item created successfully',
+                'coins_deducted' => 10,
+                'remaining_coins' => $user->coins
             ], 201);
         } catch (\Exception $e) {
             Log::error('Item creation failed', [
@@ -482,6 +505,23 @@ class ItemController extends Controller
             ], 500);
         }
     }
+
+    // ✅ STEP 5: Add helper method for logging coin transactions
+    private function logCoinTransaction($user, $amount, $type, $itemId = null)
+    {
+        // Create a coin transaction record for audit
+        DB::table('coin_transactions')->insert([
+            'user_id' => $user->id,
+            'amount' => -$amount, // Negative for deduction
+            'type' => $type,
+            'description' => "Deducted {$amount} coins for creating item listing",
+            'item_id' => $itemId,
+            'balance_after' => $user->coins,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
 
 
     /**
@@ -591,7 +631,6 @@ class ItemController extends Controller
                         $updateData['category_id'] = $category->id;
                         $updateData['sub_category_id'] = null;
                         $updateData['child_sub_category_id'] = null;
-
                     } else {
                         // Try subcategory
                         $subCategory = SubCategory::where('name', $categoryName)
@@ -603,7 +642,6 @@ class ItemController extends Controller
                             $updateData['sub_category_id'] = $subCategory->id;
                             $updateData['category_id'] = $subCategory->category_id;
                             $updateData['child_sub_category_id'] = null;
-
                         } else {
                             // Try child subcategory
                             $childSubCategory = ChildSubCategory::where('name', $categoryName)
@@ -615,7 +653,6 @@ class ItemController extends Controller
                                 $updateData['child_sub_category_id'] = $childSubCategory->id;
                                 $updateData['sub_category_id'] = $childSubCategory->sub_category_id;
                                 $updateData['category_id'] = $childSubCategory->subCategory->category_id;
-
                             } else {
                                 // Create new category as fallback
                                 $category = Category::create([
@@ -679,7 +716,7 @@ class ItemController extends Controller
 
             // Handle tags
             if ($request->has('tags') && is_array($request->input('tags'))) {
-                $tags = array_filter($request->input('tags')); 
+                $tags = array_filter($request->input('tags'));
                 $updateData['tags'] = json_encode($tags);
             } else {
                 $updateData['tags'] = json_encode([]);

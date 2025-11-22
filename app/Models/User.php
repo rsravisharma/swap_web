@@ -8,10 +8,14 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+
+    protected $dates = ['deleted_at'];
 
     protected $fillable = [
         'referral_code',
@@ -24,6 +28,8 @@ class User extends Authenticatable implements MustVerifyEmail
         'bio',
         'date_of_birth',
         'gender',
+        'subscription_plan_id',
+        'coins',
         'university',
         'course',
         'semester',
@@ -49,6 +55,9 @@ class User extends Authenticatable implements MustVerifyEmail
         'phone_verified_at',
         'email_verified_at',
         'last_active_at',
+        'last_login_at',
+        'login_streak_days',
+        'monthly_coins_awarded',
     ];
 
     protected $hidden = [
@@ -76,6 +85,11 @@ class User extends Authenticatable implements MustVerifyEmail
         'total_spent' => 'decimal:2',
         'seller_rating' => 'decimal:2',
         'last_token_update' => 'datetime',
+        'last_login_at' => 'datetime',
+        'login_streak_days' => 'integer',
+        'monthly_coins_awarded' => 'boolean',
+        'stats_last_updated' => 'datetime',
+        'coins' => 'integer',
     ];
 
     protected $appends = [
@@ -237,14 +251,22 @@ class User extends Authenticatable implements MustVerifyEmail
     public function follow(User $user): bool
     {
         if ($this->id === $user->id) {
-            return false; // Can't follow yourself
+            return false;
         }
 
         if ($this->isFollowing($user)) {
-            return false; // Already following
+            return false;
         }
 
-        $this->following()->attach($user->id);
+        DB::transaction(function () use ($user) {
+            $this->following()->attach($user->id);
+
+            // Increment follower/following counts atomically
+            DB::table('users')->where('id', $this->id)->increment('following_count');
+            DB::table('users')->where('id', $user->id)->increment('followers_count');
+        });
+
+        $this->refresh();
         return true;
     }
 
@@ -254,10 +276,25 @@ class User extends Authenticatable implements MustVerifyEmail
     public function unfollow(User $user): bool
     {
         if (!$this->isFollowing($user)) {
-            return false; // Not following
+            return false;
         }
 
-        $this->following()->detach($user->id);
+        DB::transaction(function () use ($user) {
+            $this->following()->detach($user->id);
+
+            // Decrement counts atomically with minimum 0
+            DB::table('users')
+                ->where('id', $this->id)
+                ->where('following_count', '>', 0)
+                ->decrement('following_count');
+
+            DB::table('users')
+                ->where('id', $user->id)
+                ->where('followers_count', '>', 0)
+                ->decrement('followers_count');
+        });
+
+        $this->refresh();
         return true;
     }
 
@@ -468,17 +505,278 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->subscriptionPlan ? $this->subscriptionPlan->monthly_slots : 0;
     }
 
-    public function addCoins(int $amount): void
+    public function deductCoins(int $amount, string $reason = null): bool
     {
-        $this->increment('coins', $amount);
+        // Use atomic decrement with WHERE condition to prevent race conditions
+        $affected = DB::table('users')
+            ->where('id', $this->id)
+            ->where('coins', '>=', $amount)
+            ->decrement('coins', $amount);
+
+        if ($affected > 0) {
+            // Refresh model to get updated coins value
+            $this->refresh();
+
+            // Log transaction if reason provided
+            if ($reason) {
+                $this->logCoinTransaction(-$amount, $reason);
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
-    public function deductCoins(int $amount): bool
+    // ✅ Also update addCoins for consistency
+    public function addCoins(int $amount, string $reason = null): void
     {
-        if ($this->coins < $amount) {
-            return false;
+        $this->increment('coins', $amount);
+
+        if ($reason) {
+            $this->logCoinTransaction($amount, $reason);
         }
-        $this->decrement('coins', $amount);
-        return true;
+
+        $this->refresh();
+    }
+
+    // Add helper method for logging
+    protected function logCoinTransaction(int $amount, string $reason): void
+    {
+        DB::table('coin_transactions')->insert([
+            'user_id' => $this->id,
+            'amount' => $amount,
+            'type' => $reason,
+            'balance_after' => $this->coins,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    public function updateLoginStreak(): array
+    {
+        $lastLogin = $this->last_login_at;
+        $now = now();
+
+        if (!$lastLogin) {
+            // First login
+            $this->update([
+                'login_streak_days' => 1,
+                'last_login_at' => $now,
+            ]);
+
+            return [
+                'streak' => 1,
+                'is_new_streak' => true,
+                'coins_awarded' => 0
+            ];
+        }
+
+        // ✅ Add timezone safety
+        $daysSinceLastLogin = $lastLogin->startOfDay()->diffInDays($now->startOfDay());
+
+        if ($daysSinceLastLogin === 0) {
+            // Same day login - no change
+            return [
+                'streak' => $this->login_streak_days,
+                'is_new_streak' => false,
+                'coins_awarded' => 0
+            ];
+        } elseif ($daysSinceLastLogin === 1) {
+            // Consecutive day login - increment streak
+            $newStreak = $this->login_streak_days + 1;
+
+            $this->update([
+                'login_streak_days' => $newStreak,
+                'last_login_at' => $now,
+            ]);
+
+            // Award coins for streak milestones
+            $coinsAwarded = $this->awardStreakCoins($newStreak);
+
+            return [
+                'streak' => $newStreak,
+                'is_new_streak' => true,
+                'coins_awarded' => $coinsAwarded
+            ];
+        } else {
+            // Streak broken - reset to 1
+            $this->update([
+                'login_streak_days' => 1,
+                'last_login_at' => $now,
+            ]);
+
+            return [
+                'streak' => 1,
+                'is_new_streak' => true,
+                'streak_broken' => true,
+                'coins_awarded' => 0,
+                'previous_streak' => $this->login_streak_days,
+            ];
+        }
+    }
+
+
+    /**
+     * Award coins based on streak milestones
+     */
+    protected function awardStreakCoins(int $streak): int
+    {
+        $coins = 0;
+        $reason = '';
+
+        // Award coins for streak milestones (highest priority first)
+        if ($streak % 30 === 0) {
+            $coins = 50;
+            $reason = "login_streak_30_days";
+        } elseif ($streak % 7 === 0) {
+            $coins = 10;
+            $reason = "login_streak_7_days";
+        } elseif ($streak % 5 === 0) {
+            $coins = 5;
+            $reason = "login_streak_5_days";
+        }
+
+        if ($coins > 0) {
+            $this->addCoins($coins, $reason);
+        }
+
+        return $coins;
+    }
+
+    /**
+     * Check if eligible for monthly streak bonus
+     */
+    public function checkMonthlyStreakBonus(): bool
+    {
+        if ($this->login_streak_days >= 30 && !$this->monthly_coins_awarded) {
+            $this->addCoins(100, 'monthly_streak_bonus');
+            $this->update(['monthly_coins_awarded' => true]);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Reset monthly bonus flag (run via scheduler)
+     */
+    public function resetMonthlyBonus(): void
+    {
+        $this->update(['monthly_coins_awarded' => false]);
+    }
+
+    public function coinTransactions()
+    {
+        return $this->hasMany(CoinTransaction::class)->orderBy('created_at', 'desc');
+    }
+
+    /**
+     * Get recent coin transactions
+     */
+    public function getRecentCoinTransactions(int $limit = 10)
+    {
+        return $this->coinTransactions()->limit($limit)->get();
+    }
+
+    /**
+     * Get coin balance with pending transactions
+     */
+    public function getCoinBalanceWithPending(): int
+    {
+        return $this->coins;
+    }
+
+    public function incrementListingCount(): void
+    {
+        DB::table('users')
+            ->where('id', $this->id)
+            ->update([
+                'total_listings' => DB::raw('total_listings + 1'),
+                'active_listings' => DB::raw('active_listings + 1'),
+            ]);
+
+        $this->refresh();
+    }
+
+    /**
+     * Decrement active listings (when sold/archived)
+     */
+    public function decrementActiveListings(): void
+    {
+        DB::table('users')
+            ->where('id', $this->id)
+            ->where('active_listings', '>', 0)
+            ->decrement('active_listings');
+
+        $this->refresh();
+    }
+
+    /**
+     * Increment items sold and update earnings
+     */
+    public function recordSale(float $amount): void
+    {
+        DB::table('users')
+            ->where('id', $this->id)
+            ->update([
+                'items_sold' => DB::raw('items_sold + 1'),
+                'total_earnings' => DB::raw("total_earnings + {$amount}"),
+                'stats_last_updated' => now(),
+            ]);
+
+        $this->refresh();
+    }
+
+    /**
+     * Record purchase
+     */
+    public function recordPurchase(float $amount): void
+    {
+        DB::table('users')
+            ->where('id', $this->id)
+            ->update([
+                'items_bought' => DB::raw('items_bought + 1'),
+                'total_spent' => DB::raw("total_spent + {$amount}"),
+                'stats_last_updated' => now(),
+            ]);
+
+        $this->refresh();
+    }
+
+    public function scopeHasCoins($query, int $minCoins)
+    {
+        return $query->where('coins', '>=', $minCoins);
+    }
+
+    /**
+     * Scope for users with active streak
+     */
+    public function scopeWithActiveStreak($query, int $minDays = 7)
+    {
+        return $query->where('login_streak_days', '>=', $minDays);
+    }
+
+    /**
+     * Get top sellers
+     */
+    public function scopeTopSellers($query, int $limit = 10)
+    {
+        return $query->orderBy('items_sold', 'desc')
+            ->orderBy('seller_rating', 'desc')
+            ->limit($limit);
+    }
+
+    public function canAfford(int $amount): bool
+    {
+        return $this->coins >= $amount;
+    }
+
+    /**
+     * Get coins needed for an amount
+     */
+    public function coinsNeeded(int $amount): int
+    {
+        return max(0, $amount - $this->coins);
     }
 }
