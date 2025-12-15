@@ -4,7 +4,8 @@ use Illuminate\Support\Facades\Route;
 use App\Models\ItemImage;
 use App\Http\Controllers\{
     EmailVerificationController,
-    DeletionRequestController,
+    DeletionRequestController, 
+    SupportController,
 };
 
 Route::get('/', function () {
@@ -44,10 +45,10 @@ Route::post('/deletion-request', [DeletionRequestController::class, 'store'])->n
 Route::get('/deletion-request/verify/{token}', [DeletionRequestController::class, 'verify'])->name('deletion.verify');
 Route::post('/deletion-request/status', [DeletionRequestController::class, 'status'])->name('deletion.status');
 
-Route::get('/termsAndConditions', 'SupportController@termsAndConditions');
-Route::post('/reportIssue', 'SupportController@reportIssue');
-Route::get('/faq', 'SupportController@faq');
-Route::post('/contactUs', 'SupportController@contactUs');
+Route::get('/termsAndConditions', [SupportController::class, 'termsAndConditions']);
+Route::post('/reportIssue', [SupportController::class, 'reportIssue']);
+Route::get('/faq', [SupportController::class, 'faq']);
+Route::post('/contactUs', [SupportController::class, 'contactUs']);
 
 Route::get('/item-image/{id}', function($id) {
     $image = ItemImage::findOrFail($id);
