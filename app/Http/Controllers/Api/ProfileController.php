@@ -591,7 +591,7 @@ class ProfileController extends Controller
     {
         try {
             $user = User::where('id', $userId)
-                ->where('is_active', true) // ✅ ADD: Only active users
+                ->where('is_active', true)
                 ->first();
 
             if (!$user) {
@@ -606,7 +606,6 @@ class ProfileController extends Controller
             $isBlocked = false;
 
             if ($authUser) {
-                // ✅ FIX: Check if current user is blocked by the target user
                 $blockedByTarget = UserBlock::where('blocker_id', $userId)
                     ->where('blocked_id', $authUser->id)
                     ->exists();
@@ -627,11 +626,55 @@ class ProfileController extends Controller
                     ->exists();
             }
 
+            // ✅ Efficient rating queries
+            $ratingsQuery = UserRating::where('rated_id', $userId)->where('is_public', true);
+
+            // Get overall stats
+            $overallStats = (clone $ratingsQuery)->selectRaw('
+            ROUND(AVG(rating), 1) as average_rating,
+            COUNT(*) as total_ratings
+        ')->first();
+
+            // Get seller stats
+            $sellerStats = (clone $ratingsQuery)->where('type', 'seller')->selectRaw('
+            ROUND(AVG(rating), 1) as seller_rating,
+            COUNT(*) as seller_total
+        ')->first();
+
+            // Get buyer stats
+            $buyerStats = (clone $ratingsQuery)->where('type', 'buyer')->selectRaw('
+            ROUND(AVG(rating), 1) as buyer_rating,
+            COUNT(*) as buyer_total
+        ')->first();
+
+            // Get rating breakdown
+            $ratingBreakdown = (clone $ratingsQuery)->selectRaw('
+            rating,
+            COUNT(*) as count
+        ')->groupBy('rating')->pluck('count', 'rating')->toArray();
+
             $userData = $user->toArray();
             $userData['isFollowing'] = $isFollowing;
             $userData['isBlocked'] = $isBlocked;
 
-            // ✅ ADD: Remove sensitive data from public profile
+            // ✅ ADD: Rating statistics
+            $userData['ratings'] = [
+                'average_rating' => $overallStats->average_rating ?? 0,
+                'total_ratings' => $overallStats->total_ratings ?? 0,
+                'seller_rating' => $sellerStats->seller_rating ?? 0,
+                'seller_total' => $sellerStats->seller_total ?? 0,
+                'buyer_rating' => $buyerStats->buyer_rating ?? 0,
+                'buyer_total' => $buyerStats->buyer_total ?? 0,
+                'rating_breakdown' => [
+                    '5_star' => $ratingBreakdown[5] ?? 0,
+                    '4_star' => $ratingBreakdown[4] ?? 0,
+                    '3_star' => $ratingBreakdown[3] ?? 0,
+                    '2_star' => $ratingBreakdown[2] ?? 0,
+                    '1_star' => $ratingBreakdown[1] ?? 0,
+                ],
+            ];
+
+            // Remove sensitive data
             unset(
                 $userData['email'],
                 $userData['phone'],
@@ -645,10 +688,10 @@ class ProfileController extends Controller
                 'data' => $userData
             ]);
         } catch (\Exception $e) {
+            Log::error('Failed to fetch user details: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch user details',
-                'error' => $e->getMessage()
             ], 500);
         }
     }
