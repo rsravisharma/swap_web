@@ -241,19 +241,25 @@ class SocialController extends Controller
             $page = request()->query('page', 1);
             $perPage = request()->query('per_page', 20);
             $type = request()->query('type'); // 'buyer' or 'seller'
+            $rating = request()->query('rating'); // 1-5
 
             $query = UserRating::where('rated_id', $userId)
                 ->where('is_public', true)
                 ->with(['rater:id,name,profile_image'])
                 ->orderBy('created_at', 'desc');
 
+            // ✅ Apply filters
             if ($type && in_array($type, ['buyer', 'seller'])) {
                 $query->where('type', $type);
             }
 
+            if ($rating && in_array($rating, [1, 2, 3, 4, 5])) {
+                $query->where('rating', $rating);
+            }
+
             $ratings = $query->paginate($perPage, ['*'], 'page', $page);
 
-            // ✅ FIX: Wrap items() in collect() or use getCollection()
+            // Transform ratings
             $ratingsData = collect($ratings->items())->map(function ($rating) {
                 return [
                     'id' => $rating->id,
@@ -269,7 +275,7 @@ class SocialController extends Controller
                         'profile_image' => $rating->rater->profile_image,
                     ],
                 ];
-            })->toArray(); 
+            })->toArray();
 
             $averageRating = UserRating::getAverageRating($userId);
             $totalRatings = UserRating::getTotalRatings($userId);
