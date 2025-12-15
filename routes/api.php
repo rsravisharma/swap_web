@@ -24,7 +24,7 @@ use App\Http\Controllers\Api\{
     SafetyController,
     NotificationController,
     HistoryController,
-    SupportController,
+    // SupportController,
     ItemController,
     LegalController,
     ProfileController,
@@ -645,31 +645,31 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('{ratingId}/helpful', [SocialController::class, 'markRatingHelpful']);
         Route::post('{ratingId}/report', [SocialController::class, 'reportRating']);
     });
-    
+
     Route::get('transactions/{transactionId}', [SocialController::class, 'getTransactionDetails']);
 
     // ================================
     // SUPPORT ROUTES - FIXED ORDER
     // ================================
-    Route::prefix('support')->group(function () {
-        Route::get('faqs', [SupportController::class, 'getFaqs']);
-        Route::get('faqs/search', [SupportController::class, 'searchFaqs']);
-        Route::get('contact', [SupportController::class, 'getContactInfo']);
-        Route::get('app-info', [SupportController::class, 'getAppInfo']);
-        Route::get('system-status', [SupportController::class, 'getSystemStatus']);
-        Route::get('announcements', [SupportController::class, 'getAnnouncements']);
-        Route::get('popular-topics', [SupportController::class, 'getPopularTopics']);
-        Route::get('requests/my-requests', [SupportController::class, 'getMySupportRequests']);
+    // Route::prefix('support')->group(function () {
+    //     Route::get('faqs', [SupportController::class, 'getFaqs']);
+    //     Route::get('faqs/search', [SupportController::class, 'searchFaqs']);
+    //     Route::get('contact', [SupportController::class, 'getContactInfo']);
+    //     Route::get('app-info', [SupportController::class, 'getAppInfo']);
+    //     Route::get('system-status', [SupportController::class, 'getSystemStatus']);
+    //     Route::get('announcements', [SupportController::class, 'getAnnouncements']);
+    //     Route::get('popular-topics', [SupportController::class, 'getPopularTopics']);
+    //     Route::get('requests/my-requests', [SupportController::class, 'getMySupportRequests']);
 
-        Route::post('requests', [SupportController::class, 'submitSupportRequest']);
-        Route::post('feedback', [SupportController::class, 'submitFeedback']);
-        Route::post('bug-reports', [SupportController::class, 'submitBugReport']);
-        Route::post('feature-requests', [SupportController::class, 'submitFeatureRequest']);
-        Route::post('faqs/{faqId}/helpful', [SupportController::class, 'markFaqHelpful']);
+    //     Route::post('requests', [SupportController::class, 'submitSupportRequest']);
+    //     Route::post('feedback', [SupportController::class, 'submitFeedback']);
+    //     Route::post('bug-reports', [SupportController::class, 'submitBugReport']);
+    //     Route::post('feature-requests', [SupportController::class, 'submitFeatureRequest']);
+    //     Route::post('faqs/{faqId}/helpful', [SupportController::class, 'markFaqHelpful']);
 
-        Route::get('requests/{requestId}', [SupportController::class, 'getSupportRequestDetails']);
-        Route::post('requests/{requestId}/rate', [SupportController::class, 'rateSupportExperience']);
-    });
+    //     Route::get('requests/{requestId}', [SupportController::class, 'getSupportRequestDetails']);
+    //     Route::post('requests/{requestId}/rate', [SupportController::class, 'rateSupportExperience']);
+    // });
 
     // Cache clearing route
     Route::post('clear-cache', [CategoryController::class, 'clearCache']);
