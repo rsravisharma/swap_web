@@ -80,18 +80,66 @@ class ProfileController extends Controller
         try {
             $user = Auth::user();
 
+            // Get user data as array
+            $userData = $user->toArray();
+
+            // ✅ OPTIMIZED: Get all rating data with minimal queries
+            $ratingsQuery = UserRating::where('rated_id', $user->id)->where('is_public', true);
+
+            // Get overall stats
+            $overallStats = (clone $ratingsQuery)->selectRaw('
+            ROUND(AVG(rating), 1) as average_rating,
+            COUNT(*) as total_ratings
+        ')->first();
+
+            // Get seller stats
+            $sellerStats = (clone $ratingsQuery)->where('type', 'seller')->selectRaw('
+            ROUND(AVG(rating), 1) as seller_rating,
+            COUNT(*) as seller_total
+        ')->first();
+
+            // Get buyer stats
+            $buyerStats = (clone $ratingsQuery)->where('type', 'buyer')->selectRaw('
+            ROUND(AVG(rating), 1) as buyer_rating,
+            COUNT(*) as buyer_total
+        ')->first();
+
+            // Get rating breakdown
+            $ratingBreakdown = (clone $ratingsQuery)->selectRaw('
+            rating,
+            COUNT(*) as count
+        ')->groupBy('rating')->pluck('count', 'rating')->toArray();
+
+            // ✅ ADD: Rating statistics
+            $userData['ratings'] = [
+                'average_rating' => $overallStats->average_rating ?? 0.0,
+                'total_ratings' => $overallStats->total_ratings ?? 0,
+                'seller_rating' => $sellerStats->seller_rating ?? 0.0,
+                'seller_total' => $sellerStats->seller_total ?? 0,
+                'buyer_rating' => $buyerStats->buyer_rating ?? 0.0,
+                'buyer_total' => $buyerStats->buyer_total ?? 0,
+                'rating_breakdown' => [
+                    '5_star' => $ratingBreakdown[5] ?? 0,
+                    '4_star' => $ratingBreakdown[4] ?? 0,
+                    '3_star' => $ratingBreakdown[3] ?? 0,
+                    '2_star' => $ratingBreakdown[2] ?? 0,
+                    '1_star' => $ratingBreakdown[1] ?? 0,
+                ],
+            ];
+
             return response()->json([
                 'success' => true,
-                'data' => $user->toArray()
+                'data' => $userData
             ]);
         } catch (\Exception $e) {
+            Log::error('Failed to fetch profile: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch profile',
-                'error' => $e->getMessage()
             ], 500);
         }
     }
+
 
     /**
      * Update user profile
