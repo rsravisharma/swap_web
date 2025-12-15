@@ -645,6 +645,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('{ratingId}/helpful', [SocialController::class, 'markRatingHelpful']);
         Route::post('{ratingId}/report', [SocialController::class, 'reportRating']);
     });
+    
     Route::get('transactions/{transactionId}', [SocialController::class, 'getTransactionDetails']);
 
     // ================================

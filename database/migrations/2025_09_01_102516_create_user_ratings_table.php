@@ -19,6 +19,7 @@ return new class extends Migration
             $table->foreignId('transaction_id')->nullable()->constrained('transactions')->onDelete('set null');
             $table->integer('rating')->unsigned()->check('rating >= 1 AND rating <= 5');
             $table->text('review')->nullable();
+            $table->json('tags')->nullable();
             $table->enum('type', ['buyer', 'seller']); // Rating as buyer or seller
             $table->boolean('is_public')->default(true);
             $table->timestamps();

@@ -15,13 +15,15 @@ class UserRating extends Model
         'transaction_id',
         'rating',
         'review',
+        'tags',
         'type',
         'is_public'
     ];
 
     protected $casts = [
         'rating' => 'integer',
-        'is_public' => 'boolean'
+        'is_public' => 'boolean',
+        'tags' => 'array',
     ];
 
     // Relationships

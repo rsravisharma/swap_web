@@ -315,10 +315,12 @@ class SocialController extends Controller
     public function submitRating(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'rated_id' => 'required|integer|exists:users,id', // ✅ CHANGED: rated_id
-            'transaction_id' => 'required|integer|exists:transactions,id',
+            'rated_id' => 'required|integer|exists:users,id',
+            'transaction_id' => 'nullable|integer|exists:transactions,id',
             'rating' => 'required|integer|between:1,5',
-            'review' => 'nullable|string|max:1000', // ✅ CHANGED: review
+            'review' => 'nullable|string|max:1000',
+            'tags' => 'nullable|array|max:5',
+            'tags.*' => 'string|max:100',
             'type' => 'required|string|in:buyer,seller',
             'is_public' => 'sometimes|boolean'
         ]);
@@ -379,11 +381,12 @@ class SocialController extends Controller
                 'transaction_id' => $transactionId,
                 'rating' => $request->rating,
                 'review' => $request->review,
+                'tags' => $request->tags,
                 'type' => $request->type,
                 'is_public' => $request->input('is_public', true)
             ]);
 
-            // ✅ ADD: Update user's cached rating stats
+
             $ratedUser = User::find($ratedId);
             if ($ratedUser) {
                 $newAverage = UserRating::getAverageRating($ratedId);
@@ -401,6 +404,7 @@ class SocialController extends Controller
                 'id' => $rating->id,
                 'rating' => $rating->rating,
                 'review' => $rating->review,
+                'tags' => $rating->tags,
                 'type' => $rating->type,
                 'created_at' => $rating->created_at->toDateTimeString(),
                 'transaction_id' => $rating->transaction_id,
