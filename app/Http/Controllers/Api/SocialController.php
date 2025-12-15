@@ -253,13 +253,13 @@ class SocialController extends Controller
 
             $ratings = $query->paginate($perPage, ['*'], 'page', $page);
 
-            // ✅ Transform ratings to include tags
-            $ratingsData = $ratings->items()->map(function ($rating) {
+            // ✅ FIX: Wrap items() in collect() or use getCollection()
+            $ratingsData = collect($ratings->items())->map(function ($rating) {
                 return [
                     'id' => $rating->id,
                     'rating' => $rating->rating,
                     'review' => $rating->review,
-                    'tags' => $rating->tags ?? [], // ✅ ADD THIS
+                    'tags' => $rating->tags ?? [],
                     'type' => $rating->type,
                     'created_at' => $rating->created_at->toDateTimeString(),
                     'transaction_id' => $rating->transaction_id,
@@ -269,7 +269,7 @@ class SocialController extends Controller
                         'profile_image' => $rating->rater->profile_image,
                     ],
                 ];
-            });
+            })->toArray(); 
 
             $averageRating = UserRating::getAverageRating($userId);
             $totalRatings = UserRating::getTotalRatings($userId);
@@ -296,6 +296,7 @@ class SocialController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Submit rating
