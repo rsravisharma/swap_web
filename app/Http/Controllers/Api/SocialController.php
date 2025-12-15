@@ -235,75 +235,64 @@ class SocialController extends Controller
      * Get user ratings
      * GET /users/{userId}/ratings
      */
-    public function getUserRatings(string $userId, Request $request): JsonResponse
+    public function getUserRatings(string $userId): JsonResponse
     {
         try {
-            $validator = Validator::make($request->all(), [
-                'type' => 'sometimes|string|in:buyer,seller',
-                'page' => 'sometimes|integer|min:1',
-                'per_page' => 'sometimes|integer|min:1|max:50'
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            $type = $request->input('type');
-            $perPage = $request->input('per_page', 20);
+            $page = request()->query('page', 1);
+            $perPage = request()->query('per_page', 20);
+            $type = request()->query('type'); // 'buyer' or 'seller'
 
             $query = UserRating::where('rated_id', $userId)
-                ->public() // Only public ratings
-                ->with(['rater:id,name,profile_image', 'transaction']);
+                ->where('is_public', true)
+                ->with(['rater:id,name,profile_image'])
+                ->orderBy('created_at', 'desc');
 
-            if ($type) {
-                $query->byType($type);
+            if ($type && in_array($type, ['buyer', 'seller'])) {
+                $query->where('type', $type);
             }
 
-            $ratings = $query->orderBy('created_at', 'desc')
-                ->paginate($perPage);
+            $ratings = $query->paginate($perPage, ['*'], 'page', $page);
 
-            $ratingsData = $ratings->map(function ($rating) {
+            // ✅ Transform ratings to include tags
+            $ratingsData = $ratings->items()->map(function ($rating) {
                 return [
                     'id' => $rating->id,
                     'rating' => $rating->rating,
-                    'review' => $rating->review, // ✅ CHANGED: review instead of comment
+                    'review' => $rating->review,
+                    'tags' => $rating->tags ?? [], // ✅ ADD THIS
                     'type' => $rating->type,
                     'created_at' => $rating->created_at->toDateTimeString(),
                     'transaction_id' => $rating->transaction_id,
                     'rater' => [
                         'id' => $rating->rater->id,
                         'name' => $rating->rater->name,
-                        'profile_image' => $rating->rater->profile_image
-                    ]
+                        'profile_image' => $rating->rater->profile_image,
+                    ],
                 ];
             });
 
-            // ✅ CHANGED: Use UserRating helper methods
-            $averageRating = UserRating::getAverageRating($userId, $type);
-            $totalRatings = UserRating::getTotalRatings($userId, $type);
+            $averageRating = UserRating::getAverageRating($userId);
+            $totalRatings = UserRating::getTotalRatings($userId);
 
             return response()->json([
                 'success' => true,
                 'data' => [
                     'ratings' => $ratingsData,
-                    'average_rating' => round($averageRating, 2),
+                    'average_rating' => round($averageRating, 1),
                     'total_ratings' => $totalRatings,
                     'pagination' => [
                         'current_page' => $ratings->currentPage(),
                         'total_pages' => $ratings->lastPage(),
                         'total_items' => $ratings->total(),
                         'per_page' => $ratings->perPage(),
-                    ]
-                ]
+                    ],
+                ],
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to get user ratings: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to retrieve ratings'
+                'message' => 'Failed to get user ratings',
             ], 500);
         }
     }
@@ -434,6 +423,96 @@ class SocialController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to submit rating'
+            ], 500);
+        }
+    }
+
+    public function updateRating(Request $request, string $ratingId): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'rating' => 'required|integer|between:1,5',
+            'review' => 'nullable|string|max:1000',
+            'tags' => 'nullable|array|max:5',
+            'tags.*' => 'string|max:100',
+            'is_public' => 'sometimes|boolean'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $authUser = Auth::user();
+            $rating = UserRating::find($ratingId);
+
+            if (!$rating) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Rating not found'
+                ], 404);
+            }
+
+            // Check if user owns this rating
+            if ($rating->rater_id !== $authUser->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized to update this rating'
+                ], 403);
+            }
+
+            DB::beginTransaction();
+
+            $rating->update([
+                'rating' => $request->rating,
+                'review' => $request->review,
+                'tags' => $request->tags,
+                'is_public' => $request->input('is_public', true)
+            ]);
+
+            // Update user's cached rating stats
+            $ratedUser = User::find($rating->rated_id);
+            if ($ratedUser) {
+                $newAverage = UserRating::getAverageRating($rating->rated_id);
+                $totalReviews = UserRating::getTotalRatings($rating->rated_id);
+
+                $ratedUser->update([
+                    'seller_rating' => $newAverage,
+                    'total_reviews' => $totalReviews
+                ]);
+            }
+
+            DB::commit();
+
+            $ratingData = [
+                'id' => $rating->id,
+                'rating' => $rating->rating,
+                'review' => $rating->review,
+                'tags' => $rating->tags,
+                'type' => $rating->type,
+                'created_at' => $rating->created_at->toDateTimeString(),
+                'updated_at' => $rating->updated_at->toDateTimeString(),
+                'transaction_id' => $rating->transaction_id,
+                'rater' => [
+                    'id' => $authUser->id,
+                    'name' => $authUser->name,
+                    'profile_image' => $authUser->profile_image
+                ]
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $ratingData,
+                'message' => 'Rating updated successfully'
+            ], 200);
+        } catch (\Exception $e) {
+            DB::rollback();
+            Log::error('Failed to update rating: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update rating'
             ], 500);
         }
     }

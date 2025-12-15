@@ -642,10 +642,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // Rating routes
     Route::prefix('ratings')->group(function () {
         Route::post('/', [SocialController::class, 'submitRating']);
+        Route::put('{ratingId}', [SocialController::class, 'updateRating']);
         Route::post('{ratingId}/helpful', [SocialController::class, 'markRatingHelpful']);
         Route::post('{ratingId}/report', [SocialController::class, 'reportRating']);
     });
-    
+
     Route::get('transactions/{transactionId}', [SocialController::class, 'getTransactionDetails']);
 
     // ================================
