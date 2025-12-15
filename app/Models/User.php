@@ -101,13 +101,38 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function referrer()
     {
-        return $this->belongsTo(User::class, 'referred_by');
+        return $this->belongsTo(User::class, 'referred_by', 'id');
     }
 
     // Users that were referred by this user
     public function referrals()
     {
-        return $this->hasMany(User::class, 'referred_by');
+        return $this->hasMany(User::class, 'referred_by', 'id');
+    }
+
+    public function getTotalReferralsAttribute()
+    {
+        return $this->referrals()->count();
+    }
+
+    /**
+     * Get coins earned from referrals
+     */
+    public function getReferralCoinsEarnedAttribute()
+    {
+        return $this->referrals()->count() * 5;
+    }
+
+    /**
+     * Scope to get users with referral stats
+     */
+    public function scopeWithReferralStats($query)
+    {
+        return $query->withCount('referrals')
+            ->addSelect([
+                'referral_coins' => User::selectRaw('COUNT(*) * 5')
+                    ->whereColumn('referred_by', 'users.id')
+            ]);
     }
 
     public static function generateUniqueReferralCode($length = 8): string

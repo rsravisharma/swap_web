@@ -29,7 +29,8 @@ use App\Http\Controllers\Api\{
     LegalController,
     ProfileController,
     SettingsController,
-    UserController
+    UserController,
+    ReferralController,
 };
 
 // ================================
@@ -645,6 +646,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('{ratingId}', [SocialController::class, 'updateRating']);
         Route::post('{ratingId}/helpful', [SocialController::class, 'markRatingHelpful']);
         Route::post('{ratingId}/report', [SocialController::class, 'reportRating']);
+    });
+
+    Route::prefix('referral')->group(function () {
+        Route::post('validate', [ReferralController::class, 'validateCode']);
+        Route::post('apply', [ReferralController::class, 'applyCode']);
+        Route::get('stats', [ReferralController::class, 'getStats']);
+        Route::get('my-referrals', [ReferralController::class, 'getReferredUsers']);
+        Route::get('transactions', [ReferralController::class, 'getTransactionHistory']);
     });
 
     Route::get('transactions/{transactionId}', [SocialController::class, 'getTransactionDetails']);
