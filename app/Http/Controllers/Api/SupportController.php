@@ -3,19 +3,19 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
+// use App\Models\User;
 use App\Models\SupportRequest;
 use App\Models\Faq;
-use App\Models\Announcement;
-use App\Models\BugReport;
-use App\Models\Feedback;
-use App\Models\FeatureRequest;
-use App\Models\UserReport;
+// use App\Models\Announcement;
+// use App\Models\BugReport;
+// use App\Models\Feedback;
+// use App\Models\FeatureRequest;
+// use App\Models\UserReport;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Storage;
+// use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
@@ -329,12 +329,12 @@ class SupportController extends Controller
         try {
             $user = Auth::user();
 
-            Feedback::create([
-                'user_id' => $user->id,
-                'message' => $request->message,
-                'rating' => $request->rating,
-                'category' => $request->input('category', 'general')
-            ]);
+            // Feedback::create([
+            //     'user_id' => $user->id,
+            //     'message' => $request->message,
+            //     'rating' => $request->rating,
+            //     'category' => $request->input('category', 'general')
+            // ]);
 
             return response()->json([
                 'success' => true,
@@ -451,31 +451,31 @@ class SupportController extends Controller
      * Get announcements
      * GET /support/announcements
      */
-    public function getAnnouncements(): JsonResponse
-    {
-        try {
-            $announcements = Announcement::where('is_active', true)
-                ->where('start_date', '<=', now())
-                ->where(function ($query) {
-                    $query->whereNull('end_date')
-                        ->orWhere('end_date', '>=', now());
-                })
-                ->orderBy('priority', 'desc')
-                ->orderBy('created_at', 'desc')
-                ->get();
+    // public function getAnnouncements(): JsonResponse
+    // {
+    //     try {
+    //         $announcements = Announcement::where('is_active', true)
+    //             ->where('start_date', '<=', now())
+    //             ->where(function ($query) {
+    //                 $query->whereNull('end_date')
+    //                     ->orWhere('end_date', '>=', now());
+    //             })
+    //             ->orderBy('priority', 'desc')
+    //             ->orderBy('created_at', 'desc')
+    //             ->get();
 
-            return response()->json([
-                'success' => true,
-                'data' => $announcements
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Failed to get announcements: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve announcements'
-            ], 500);
-        }
-    }
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $announcements
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Failed to get announcements: ' . $e->getMessage());
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to retrieve announcements'
+    //         ], 500);
+    //     }
+    // }
 
     /**
      * Submit bug report
@@ -504,18 +504,18 @@ class SupportController extends Controller
         try {
             $user = Auth::user();
 
-            BugReport::create([
-                'user_id' => $user->id,
-                'title' => $request->title,
-                'description' => $request->description,
-                'steps_to_reproduce' => $request->steps_to_reproduce,
-                'expected_behavior' => $request->expected_behavior,
-                'actual_behavior' => $request->actual_behavior,
-                'platform' => $request->platform,
-                'app_version' => $request->app_version,
-                'device_info' => $request->device_info,
-                'status' => 'open'
-            ]);
+            // BugReport::create([
+            //     'user_id' => $user->id,
+            //     'title' => $request->title,
+            //     'description' => $request->description,
+            //     'steps_to_reproduce' => $request->steps_to_reproduce,
+            //     'expected_behavior' => $request->expected_behavior,
+            //     'actual_behavior' => $request->actual_behavior,
+            //     'platform' => $request->platform,
+            //     'app_version' => $request->app_version,
+            //     'device_info' => $request->device_info,
+            //     'status' => 'open'
+            // ]);
 
             return response()->json([
                 'success' => true,
@@ -604,14 +604,14 @@ class SupportController extends Controller
         try {
             $user = Auth::user();
 
-            FeatureRequest::create([
-                'user_id' => $user->id,
-                'title' => $request->title,
-                'description' => $request->description,
-                'use_case' => $request->use_case,
-                'priority' => $request->input('priority', 'medium'),
-                'status' => 'pending'
-            ]);
+            // FeatureRequest::create([
+            //     'user_id' => $user->id,
+            //     'title' => $request->title,
+            //     'description' => $request->description,
+            //     'use_case' => $request->use_case,
+            //     'priority' => $request->input('priority', 'medium'),
+            //     'status' => 'pending'
+            // ]);
 
             return response()->json([
                 'success' => true,
