@@ -346,30 +346,38 @@ class SocialController extends Controller
             }
 
             // Check if transaction exists and user is part of it
-            $transaction = Transaction::where('id', $transactionId)
-                ->where(function ($query) use ($authUser) {
-                    $query->where('buyer_id', $authUser->id)
-                        ->orWhere('seller_id', $authUser->id);
-                })
-                ->first();
+            if ($transactionId) {
+                $transaction = Transaction::where('id', $transactionId)
+                    ->where(function ($query) use ($authUser) {
+                        $query->where('buyer_id', $authUser->id)
+                            ->orWhere('seller_id', $authUser->id);
+                    })
+                    ->first();
 
-            if (!$transaction) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Transaction not found or unauthorized'
-                ], 404);
+                if (!$transaction) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Transaction not found or unauthorized'
+                    ], 404);
+                }
             }
 
             // Check if already rated
-            $existingRating = UserRating::where('rater_id', $authUser->id)
-                ->where('rated_id', $ratedId)
-                ->where('transaction_id', $transactionId)
-                ->first();
+            $existingRatingQuery = UserRating::where('rater_id', $authUser->id)
+                ->where('rated_id', $ratedId);
+
+            if ($transactionId) {
+                $existingRatingQuery->where('transaction_id', $transactionId);
+            } else {
+                $existingRatingQuery->whereNull('transaction_id');
+            }
+
+            $existingRating = $existingRatingQuery->first();
 
             if ($existingRating) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'You have already rated this transaction'
+                    'message' => 'You have already rated this ' . ($transactionId ? 'transaction' : 'user')
                 ], 400);
             }
 
