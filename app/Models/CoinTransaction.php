@@ -29,14 +29,49 @@ class CoinTransaction extends Model
     {
         return $this->belongsTo(Item::class);
     }
-    
+
     public function scopeCredits($query)
     {
         return $query->where('amount', '>', 0);
     }
-    
+
     public function scopeDebits($query)
     {
         return $query->where('amount', '<', 0);
+    }
+
+    public function scopeReferrals($query)
+    {
+        return $query->whereIn('type', [
+            'referral_signup_reward',
+            'referral_commission',
+        ]);
+    }
+
+    public function scopeReferralSignupRewards($query)
+    {
+        return $query->where('type', 'referral_signup_reward');
+    }
+
+    public function scopeReferralCommissions($query)
+    {
+        return $query->where('type', 'referral_commission');
+    }
+
+    public function getFormattedAmountAttribute()
+    {
+        return ($this->amount >= 0 ? '+' : '') . $this->amount;
+    }
+
+    public function getTypeLabelAttribute()
+    {
+        return match ($this->type) {
+            'referral_signup_reward' => 'Referral Signup Bonus',
+            'referral_commission' => 'Referral Commission',
+            'item_listing' => 'Item Listing Fee',
+            'purchase' => 'Purchase',
+            'reward' => 'Reward',
+            default => ucwords(str_replace('_', ' ', $this->type)),
+        };
     }
 }

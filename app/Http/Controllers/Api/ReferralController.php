@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Models\CoinTransaction;
+
 
 class ReferralController extends Controller
 {
@@ -177,6 +179,11 @@ class ReferralController extends Controller
      */
     public function applyCode(Request $request)
     {
+        Log::info('=== APPLY REFERRAL CODE STARTED ===', [
+            'user_id' => auth()->id(),
+            'referral_code' => $request->referral_code,
+        ]);
+
         $request->validate([
             'referral_code' => 'required|string|max:10',
         ]);
@@ -184,8 +191,19 @@ class ReferralController extends Controller
         $referralCode = strtoupper(trim($request->referral_code));
         $currentUser = auth()->user();
 
+        Log::info('Current user data', [
+            'user_id' => $currentUser->id,
+            'current_coins' => $currentUser->coins,
+            'referred_by' => $currentUser->referred_by,
+        ]);
+
         // Check if user already used a referral code
         if ($currentUser->referred_by) {
+            Log::warning('User already used a referral code', [
+                'user_id' => $currentUser->id,
+                'referred_by' => $currentUser->referred_by,
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'You have already used a referral code.',
@@ -196,13 +214,23 @@ class ReferralController extends Controller
         $referrer = User::where('referral_code', $referralCode)->first();
 
         if (!$referrer) {
+            Log::warning('Invalid referral code', ['code' => $referralCode]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid referral code.',
             ], 200);
         }
 
+        Log::info('Referrer found', [
+            'referrer_id' => $referrer->id,
+            'referrer_name' => $referrer->name,
+            'referrer_coins' => $referrer->coins,
+        ]);
+
         if ($referrer->id === $currentUser->id) {
+            Log::warning('User trying to use own code');
+
             return response()->json([
                 'success' => false,
                 'message' => 'You cannot use your own referral code.',
@@ -212,17 +240,53 @@ class ReferralController extends Controller
         // Use database transaction for data consistency
         DB::beginTransaction();
         try {
-            // Update current user
+            Log::info('Starting transaction');
+
+            // ✅ Update current user and log transaction
             $currentUser->referred_by = $referrer->id;
+            $oldBalance = $currentUser->coins;
             $currentUser->coins += 5;
             $currentUser->save();
 
-            // Reward referrer
+            // ✅ Log coin transaction for new user
+            CoinTransaction::create([
+                'user_id' => $currentUser->id,
+                'amount' => 5,
+                'type' => 'referral_signup_reward',
+                'description' => "Referral reward for using code: {$referralCode}",
+                'balance_after' => $currentUser->coins,
+            ]);
+
+            Log::info('Current user updated and transaction logged', [
+                'user_id' => $currentUser->id,
+                'old_balance' => $oldBalance,
+                'new_balance' => $currentUser->coins,
+                'coins_added' => 5,
+            ]);
+
+            // ✅ Reward referrer and log transaction
+            $referrerOldBalance = $referrer->coins;
             $referrer->coins += 5;
             $referrer->save();
 
-            // ✅ Log the referral transaction
-            ReferralTransaction::create([
+            // ✅ Log coin transaction for referrer
+            CoinTransaction::create([
+                'user_id' => $referrer->id,
+                'amount' => 5,
+                'type' => 'referral_commission',
+                'description' => "Referral commission for referring {$currentUser->name} (Code: {$referralCode})",
+                'balance_after' => $referrer->coins,
+            ]);
+
+            Log::info('Referrer updated and transaction logged', [
+                'referrer_id' => $referrer->id,
+                'old_balance' => $referrerOldBalance,
+                'new_balance' => $referrer->coins,
+                'coins_added' => 5,
+            ]);
+
+            // ✅ Log the referral transaction (for referral tracking)
+            $transaction = ReferralTransaction::create([
                 'referrer_id' => $referrer->id,
                 'referred_user_id' => $currentUser->id,
                 'referral_code' => $referralCode,
@@ -230,12 +294,21 @@ class ReferralController extends Controller
                 'awarded_at' => now(),
             ]);
 
-            DB::commit();
+            Log::info('Referral transaction created', [
+                'transaction_id' => $transaction->id,
+            ]);
 
-            Log::info('Referral applied successfully', [
-                'referrer_id' => $referrer->id,
-                'referred_user_id' => $currentUser->id,
-                'referral_code' => $referralCode,
+            DB::commit();
+            Log::info('Transaction committed successfully');
+
+            // Refresh users to get latest data
+            $currentUser->refresh();
+            $referrer->refresh();
+
+            Log::info('=== APPLY REFERRAL CODE COMPLETED ===', [
+                'success' => true,
+                'current_user_coins' => $currentUser->coins,
+                'referrer_coins' => $referrer->coins,
             ]);
 
             return response()->json([
@@ -253,11 +326,15 @@ class ReferralController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error applying referral code: ' . $e->getMessage());
+            Log::error('Error applying referral code', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to apply referral code. Please try again.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -285,6 +362,49 @@ class ReferralController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve transaction history',
+            ], 500);
+        }
+    }
+
+    public function getReferralTransactionHistory(Request $request)
+    {
+        try {
+            $user = auth()->user();
+            $perPage = $request->input('per_page', 20);
+
+            $transactions = CoinTransaction::where('user_id', $user->id)
+                ->referrals() // Use the scope
+                ->orderBy('created_at', 'desc')
+                ->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'data' => $transactions->map(function ($transaction) {
+                    return [
+                        'id' => $transaction->id,
+                        'amount' => $transaction->amount,
+                        'formatted_amount' => $transaction->formatted_amount,
+                        'type' => $transaction->type,
+                        'type_label' => $transaction->type_label,
+                        'description' => $transaction->description,
+                        'balance_after' => $transaction->balance_after,
+                        'created_at' => $transaction->created_at->format('Y-m-d H:i:s'),
+                        'created_at_human' => $transaction->created_at->diffForHumans(),
+                    ];
+                }),
+                'pagination' => [
+                    'total' => $transactions->total(),
+                    'per_page' => $transactions->perPage(),
+                    'current_page' => $transactions->currentPage(),
+                    'last_page' => $transactions->lastPage(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error fetching referral transactions: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve transactions',
             ], 500);
         }
     }
