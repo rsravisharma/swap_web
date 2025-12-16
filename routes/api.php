@@ -477,6 +477,17 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('{offerId}/accept', [OfferController::class, 'acceptOffer']);
         Route::put('{offerId}/reject', [OfferController::class, 'rejectOffer']);
         Route::delete('{offerId}', [OfferController::class, 'cancelOffer']);
+
+        Route::post('{offerId}/meetup', [MeetupController::class, 'createOrUpdate']);
+    });
+
+    Route::prefix('meetups')->group(function () {
+        Route::get('/', [MeetupController::class, 'index']);
+        Route::get('{meetup}', [MeetupController::class, 'show']);
+        Route::put('{meetup}', [MeetupController::class, 'update']);          
+        Route::put('{meetup}/confirm', [MeetupController::class, 'confirm']);  
+        Route::put('{meetup}/fail', [MeetupController::class, 'markFailed']);  
+        Route::put('{meetup}/cancel', [MeetupController::class, 'cancel']);    
     });
 
     Route::prefix('study-material-requests')->group(function () {

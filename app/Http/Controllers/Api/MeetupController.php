@@ -413,8 +413,350 @@ class MeetupController extends Controller
         }
     }
 
+    /**
+     * Create or update meetup from an accepted offer.
+     * POST /offers/{offerId}/meetup
+     */
+    public function createOrUpdate(Request $request, string $offerId): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'meetup_location'         => 'required|string|max:255',
+            'meetup_location_type'    => 'required|string|in:public,campus,doorstep',
+            'meetup_location_details' => 'nullable|array',
+            'preferred_meetup_time'   => 'required|date|after:now',
+            'alternative_meetup_time' => 'nullable|date|after:now',
+            'payment_method'          => 'required|string|max:100',
+            'buyer_notes'             => 'nullable|string|max:500',
+            'acknowledged_safety'     => 'required|boolean',
+        ]);
 
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
 
+        try {
+            $user  = Auth::user();
+            $offer = Offer::with('item')->where('id', $offerId)
+                ->where('status', 'accepted')
+                ->first();
+
+            if (!$offer) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Offer not found or not accepted',
+                ], 404);
+            }
+
+            if (!in_array($user->id, [$offer->sender_id, $offer->receiver_id], true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Not authorized to schedule meetup for this offer',
+                ], 403);
+            }
+
+            $sellerId = $offer->item->user_id;
+            $buyerId  = $offer->sender_id === $sellerId ? $offer->receiver_id : $offer->sender_id;
+
+            DB::beginTransaction();
+
+            $meetup = Meetup::updateOrCreate(
+                ['offer_id' => $offer->id],
+                [
+                    'buyer_id'                => $buyerId,
+                    'seller_id'               => $sellerId,
+                    'item_id'                 => $offer->item_id,
+                    'agreed_price'            => $offer->amount,
+                    'original_price'          => $offer->item->price,
+                    'meetup_location'         => $request->meetup_location,
+                    'meetup_location_type'    => $request->meetup_location_type,
+                    'meetup_location_details' => $request->meetup_location_details,
+                    'preferred_meetup_time'   => $request->preferred_meetup_time,
+                    'alternative_meetup_time' => $request->alternative_meetup_time,
+                    'payment_method'          => $request->payment_method,
+                    'buyer_notes'             => $request->buyer_notes,
+                    'acknowledged_safety'     => $request->acknowledged_safety,
+                    'status'                  => 'meetup_scheduled',
+                ]
+            );
+
+            // Mark item as reserved (not sold yet)
+            $offer->item->update(['status' => 'reserved']);
+
+            DB::commit();
+
+            Log::info('✅ Meetup scheduled', [
+                'meetup_id' => $meetup->id,
+                'offer_id'  => $offer->id,
+                'scheduled_by' => $user->id,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Meetup scheduled successfully',
+                'data'    => $meetup->fresh(['buyer', 'seller', 'item', 'offer']),
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('❌ Failed to schedule meetup', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to schedule meetup',
+                'error'   => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
+     * Update existing meetup (reschedule time/location).
+     * PUT /meetups/{meetup}
+     */
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'meetup_location'         => 'nullable|string|max:255',
+            'meetup_location_type'    => 'nullable|string|in:public,campus,doorstep',
+            'preferred_meetup_time'   => 'nullable|date|after:now',
+            'alternative_meetup_time' => 'nullable|date|after:now',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        try {
+            $user   = Auth::user();
+            $meetup = Meetup::find($id);
+
+            if (!$meetup) {
+                return response()->json(['success' => false, 'message' => 'Meetup not found'], 404);
+            }
+
+            if (!in_array($user->id, [$meetup->buyer_id, $meetup->seller_id], true)) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+            }
+
+            if (!in_array($meetup->status, ['meetup_scheduled', 'pending'])) {
+                return response()->json(['success' => false, 'message' => 'Cannot update meetup in current status'], 400);
+            }
+
+            $meetup->update($request->only([
+                'meetup_location',
+                'meetup_location_type',
+                'preferred_meetup_time',
+                'alternative_meetup_time',
+            ]));
+
+            Log::info('✅ Meetup updated', ['meetup_id' => $meetup->id, 'updated_by' => $user->id]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Meetup updated successfully',
+                'data'    => $meetup->fresh(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('❌ Failed to update meetup', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update meetup',
+                'error'   => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
+     * Double confirmation: buyer/seller confirms transaction happened.
+     * PUT /offers/{offerId}/meetup/confirm OR /meetups/{meetup}/confirm
+     */
+    public function confirm(Request $request, int $id): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'role' => 'required|in:buyer,seller',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        try {
+            $user   = Auth::user();
+            $meetup = Meetup::with(['item', 'offer'])->find($id);
+
+            if (!$meetup) {
+                return response()->json(['success' => false, 'message' => 'Meetup not found'], 404);
+            }
+
+            // Validate user matches the role
+            if ($request->role === 'buyer' && $user->id !== $meetup->buyer_id) {
+                return response()->json(['success' => false, 'message' => 'Only buyer can confirm as buyer'], 403);
+            }
+
+            if ($request->role === 'seller' && $user->id !== $meetup->seller_id) {
+                return response()->json(['success' => false, 'message' => 'Only seller can confirm as seller'], 403);
+            }
+
+            if (!in_array($meetup->status, ['meetup_scheduled', 'pending'])) {
+                return response()->json(['success' => false, 'message' => 'Meetup cannot be confirmed in current status'], 400);
+            }
+
+            DB::beginTransaction();
+
+            $field       = $request->role === 'buyer' ? 'buyer_confirmed' : 'seller_confirmed';
+            $timestampField = $request->role === 'buyer' ? 'buyer_confirmed_at' : 'seller_confirmed_at';
+
+            $meetup->update([
+                $field          => true,
+                $timestampField => now(),
+            ]);
+
+            // Check if BOTH parties confirmed
+            $bothConfirmed = $meetup->fresh()->buyer_confirmed && $meetup->fresh()->seller_confirmed;
+
+            if ($bothConfirmed) {
+                $meetup->update([
+                    'status'       => 'completed',
+                    'completed_at' => now(),
+                ]);
+
+                // Mark item as sold
+                $meetup->item->update([
+                    'status'  => 'sold',
+                    'is_sold' => true,
+                    'sold_at' => now(),
+                ]);
+
+                // TODO: Award coins here
+                // CoinService::awardTransactionCoins($meetup->seller_id, 5); // +5 coins to seller
+                // CoinService::awardTransactionCoins($meetup->buyer_id, 2);  // +2 coins to buyer
+
+                Log::info('🎉 Transaction completed (both confirmed)', [
+                    'meetup_id'  => $meetup->id,
+                    'buyer_id'   => $meetup->buyer_id,
+                    'seller_id'  => $meetup->seller_id,
+                ]);
+            } else {
+                Log::info('⏳ Waiting for other party confirmation', [
+                    'meetup_id'        => $meetup->id,
+                    'confirmed_by'     => $request->role,
+                    'buyer_confirmed'  => $meetup->buyer_confirmed,
+                    'seller_confirmed' => $meetup->seller_confirmed,
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => $bothConfirmed
+                    ? 'Transaction completed! Coins awarded.'
+                    : 'Confirmation recorded. Waiting for other party.',
+                'data'    => [
+                    'meetup'         => $meetup->fresh(),
+                    'both_confirmed' => $bothConfirmed,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('❌ Failed to confirm meetup', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to confirm meetup',
+                'error'   => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
+     * Mark deal as failed (they met but didn't transact).
+     * PUT /offers/{offerId}/meetup/fail OR /meetups/{meetup}/fail
+     */
+    public function markFailed(Request $request, int $id): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'reason' => 'nullable|string|max:500',
+            'relist' => 'nullable|boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        try {
+            $user   = Auth::user();
+            $meetup = Meetup::with(['item', 'offer'])->find($id);
+
+            if (!$meetup) {
+                return response()->json(['success' => false, 'message' => 'Meetup not found'], 404);
+            }
+
+            if (!in_array($user->id, [$meetup->buyer_id, $meetup->seller_id], true)) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+            }
+
+            if (!in_array($meetup->status, ['meetup_scheduled', 'pending'])) {
+                return response()->json(['success' => false, 'message' => 'Cannot mark as failed in current status'], 400);
+            }
+
+            DB::beginTransaction();
+
+            $meetup->update([
+                'status'             => 'failed',
+                'cancelled_at'       => now(),
+                'cancellation_reason' => $request->reason ?? 'Deal failed after meetup',
+            ]);
+
+            // Move offer to cancelled (shows in Inactive tab)
+            $meetup->offer->update([
+                'status'           => 'cancelled',
+                'cancelled_at'     => now(),
+                'rejection_reason' => $request->reason ?? 'Deal failed',
+            ]);
+
+            // Relist item if seller requests
+            if ($request->boolean('relist') && $meetup->item->user_id === $user->id) {
+                $meetup->item->update([
+                    'status'      => 'active',
+                    'is_sold'     => false,
+                    'sold_at'     => null,
+                    'is_archived' => false,
+                    'archived_at' => null,
+                ]);
+
+                Log::info('🔄 Item relisted', ['item_id' => $meetup->item->id]);
+            } else {
+                // Just unreserve it if not relisting
+                $meetup->item->update(['status' => 'active']);
+            }
+
+            DB::commit();
+
+            Log::info('❌ Deal marked as failed', [
+                'meetup_id'  => $meetup->id,
+                'failed_by'  => $user->id,
+                'reason'     => $request->reason,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Deal marked as failed',
+                'data'    => $meetup->fresh(),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('❌ Failed to mark deal as failed', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to mark deal as failed',
+                'error'   => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
 
     /**
      * Mark meetup as completed (after successful exchange)

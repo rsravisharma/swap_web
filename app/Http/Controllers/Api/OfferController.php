@@ -28,9 +28,8 @@ class OfferController extends Controller
     {
         try {
             $user = Auth::user();
-            $tab = $request->query('tab', 'all');
+            $tab  = $request->query('tab', 'all');
 
-            // Start with base query
             $offersQuery = Offer::query()
                 ->where(function ($query) use ($user) {
                     $query->where('sender_id', $user->id)
@@ -52,12 +51,12 @@ class OfferController extends Controller
                     $offersQuery->where('status', 'accepted');
                     break;
 
-                case 'rejected':
-                    $offersQuery->whereIn('status', ['rejected', 'cancelled']);
+                case 'inactive': // NEW: renamed from rejected
+                    $offersQuery->whereIn('status', ['rejected', 'cancelled'])
+                        ->where('updated_at', '>=', now()->subDays(7)); // auto-hide after 7 days
                     break;
             }
 
-            // Apply latestInChain AFTER status filtering
             $offers = $offersQuery
                 ->latestInChain()
                 ->with([
@@ -66,29 +65,28 @@ class OfferController extends Controller
                     'sender',
                     'receiver',
                     'parentOffer.sender',
-                    'parentOffer.receiver'
+                    'parentOffer.receiver',
                 ])
                 ->orderBy('created_at', 'desc')
                 ->get();
 
             return response()->json([
                 'success' => true,
-                'data' => $offers,
-                'meta' => [
+                'data'    => $offers,
+                'meta'    => [
                     'total' => $offers->count(),
-                    'tab' => $tab
-                ]
+                    'tab'   => $tab,
+                ],
             ]);
         } catch (\Exception $e) {
             \Log::error('Error fetching offers', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch offers',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -114,7 +112,7 @@ class OfferController extends Controller
                     ->where('status', 'pending')
                     ->count(),
                 'accepted' => $allOffers->where('status', 'accepted')->count(),
-                'rejected' => $allOffers->whereIn('status', ['rejected', 'cancelled'])->count(),
+                'inactive' => $allOffers->whereIn('status', ['rejected', 'cancelled'])->count(),
                 'pending' => $allOffers->where('status', 'pending')->count(),
             ];
 
@@ -147,7 +145,7 @@ class OfferController extends Controller
             // Load all offers in this chain: root + counter offers ordered by created_at
             $offerChain = Offer::where('id', $rootOffer->id)
                 ->orWhere('parent_offer_id', $rootOffer->id)
-                ->with(['item.user','item.images','sender', 'receiver', 'parentOffer'])
+                ->with(['item.user', 'item.images', 'sender', 'receiver', 'parentOffer'])
                 ->orderBy('created_at', 'asc')
                 ->get();
 
@@ -506,6 +504,50 @@ class OfferController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to cancel offer',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Cancel order
+     * PUT /orders/{orderId}/cancel
+     */
+    public function cancelOrder(string $orderId): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            $order = Order::where('id', $orderId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found'
+                ], 404);
+            }
+
+            if (!in_array($order->status, ['pending', 'confirmed'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order cannot be cancelled'
+                ], 400);
+            }
+
+            $order->update([
+                'status' => 'cancelled',
+                'cancelled_at' => now()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order cancelled successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to cancel order',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -904,50 +946,6 @@ class OfferController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch tracking updates',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Cancel order
-     * PUT /orders/{orderId}/cancel
-     */
-    public function cancelOrder(string $orderId): JsonResponse
-    {
-        try {
-            $user = Auth::user();
-            $order = Order::where('id', $orderId)
-                ->where('user_id', $user->id)
-                ->first();
-
-            if (!$order) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Order not found'
-                ], 404);
-            }
-
-            if (!in_array($order->status, ['pending', 'confirmed'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Order cannot be cancelled'
-                ], 400);
-            }
-
-            $order->update([
-                'status' => 'cancelled',
-                'cancelled_at' => now()
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Order cancelled successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to cancel order',
                 'error' => $e->getMessage()
             ], 500);
         }
