@@ -66,6 +66,7 @@ class OfferController extends Controller
                     'receiver',
                     'parentOffer.sender',
                     'parentOffer.receiver',
+                    'meetup',
                 ])
                 ->orderBy('created_at', 'desc')
                 ->get();

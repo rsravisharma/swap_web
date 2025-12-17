@@ -198,4 +198,9 @@ class Offer extends Model
                 ->groupBy(DB::raw('COALESCE(o2.parent_offer_id, o2.id)'));
         });
     }
+
+    public function meetup()
+    {
+        return $this->hasOne(Meetup::class);
+    }
 }
