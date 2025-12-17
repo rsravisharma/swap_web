@@ -453,13 +453,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('delivery/options', [OfferController::class, 'getDeliveryOptions']);
     Route::post('checkout', [OfferController::class, 'processCheckout']);
 
-    Route::middleware('auth:sanctum')->group(function () {
-        Route::post('/meetups/confirm', [MeetupController::class, 'confirmMeetup']);
-        Route::get('/meetups', [MeetupController::class, 'index']);
-        Route::get('/meetups/{id}', [MeetupController::class, 'show']);
-        Route::put('/meetups/{id}/complete', [MeetupController::class, 'complete']);
-        Route::put('/meetups/{id}/cancel', [MeetupController::class, 'cancel']);
-    });
 
     Route::prefix('orders')->group(function () {
         Route::get('/', [OfferController::class, 'getOrders']);
