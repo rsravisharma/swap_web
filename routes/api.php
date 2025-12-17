@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\{
     SettingsController,
     UserController,
     ReferralController,
+    TransactionController,
 };
 
 // ================================
@@ -477,10 +478,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('meetups')->group(function () {
         Route::get('/', [MeetupController::class, 'index']);
         Route::get('{meetup}', [MeetupController::class, 'show']);
-        Route::put('{meetup}', [MeetupController::class, 'update']);          
-        Route::put('{meetup}/confirm', [MeetupController::class, 'confirm']);  
-        Route::put('{meetup}/fail', [MeetupController::class, 'markFailed']);  
-        Route::put('{meetup}/cancel', [MeetupController::class, 'cancel']);    
+        Route::put('{meetup}', [MeetupController::class, 'update']);
+        Route::put('{meetup}/confirm', [MeetupController::class, 'confirm']);
+        Route::put('{meetup}/fail', [MeetupController::class, 'markFailed']);
+        Route::put('{meetup}/cancel', [MeetupController::class, 'cancel']);
+    });
+
+    Route::prefix('transactions')->group(function () {
+        Route::get('/', [TransactionController::class, 'index']);
+        Route::get('{id}', [TransactionController::class, 'show']);
+        Route::get('monthly-summary', [TransactionController::class, 'monthlySummary']);
+        Route::get('yearly-overview', [TransactionController::class, 'yearlyOverview']);
     });
 
     Route::prefix('study-material-requests')->group(function () {

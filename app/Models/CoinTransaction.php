@@ -71,6 +71,8 @@ class CoinTransaction extends Model
             'item_listing' => 'Item Listing Fee',
             'purchase' => 'Purchase',
             'reward' => 'Reward',
+            'sale_completed' => 'Sale Completed Reward', 
+            'purchase_completed' => 'Purchase Completed Reward', 
             default => ucwords(str_replace('_', ' ', $this->type)),
         };
     }

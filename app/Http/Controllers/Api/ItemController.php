@@ -900,6 +900,7 @@ class ItemController extends Controller
                 ], 404);
             }
 
+            // ✅ The observer will automatically handle active_listings decrement
             $item->update([
                 'status' => 'archived',
                 'is_archived' => true,
@@ -922,6 +923,42 @@ class ItemController extends Controller
             ], 500);
         }
     }
+
+    public function unarchive(int $id): JsonResponse
+    {
+        try {
+            $item = Item::where('id', $id)->where('user_id', Auth::id())->first();
+
+            if (!$item) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item not found'
+                ], 404);
+            }
+
+            // ✅ The observer will automatically handle active_listings increment
+            $item->update([
+                'status' => 'active',
+                'is_archived' => false,
+                'archived_at' => null
+            ]);
+
+            HistoryService::addItemHistory(Auth::id(), $item->id, $item->title, 'unarchive');
+
+            return response()->json([
+                'success' => true,
+                'data' => $item,
+                'message' => 'Item unarchived successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to unarchive item',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
 
     /**
      * Promote item

@@ -13,6 +13,8 @@ use App\Models\Meetup;
 use App\Models\Item;
 use App\Models\User;
 use App\Models\Offer;
+use App\Models\CoinTransaction;
+use App\Models\Transaction;
 
 class MeetupController extends Controller
 {
@@ -741,15 +743,89 @@ class MeetupController extends Controller
                     'sold_at' => now(),
                 ]);
 
-                // TODO: Award coins here
-                // CoinService::awardTransactionCoins($meetup->seller_id, 5); // +5 coins to seller
-                // CoinService::awardTransactionCoins($meetup->buyer_id, 2);  // +2 coins to buyer
+                $saleAmount = (float) $meetup->agreed_price;
 
-                Log::info('🎉 Transaction completed (both confirmed)', [
-                    'meetup_id'  => $meetup->id,
-                    'buyer_id'   => $meetup->buyer_id,
-                    'seller_id'  => $meetup->seller_id,
+                // ✅ CREATE TRANSACTION RECORD (Source of Truth)
+                $transaction = Transaction::create([
+                    'buyer_id' => $meetup->buyer_id,
+                    'seller_id' => $meetup->seller_id,
+                    'item_id' => $meetup->item_id,
+                    'amount' => $saleAmount,
+                    'status' => 'completed',
+                    'completed_at' => now(),
                 ]);
+
+                Log::info('💰 Transaction record created', [
+                    'transaction_id' => $transaction->id,
+                    'amount' => $saleAmount,
+                ]);
+
+                // ✅ UPDATE USER CACHED STATS (For Performance)
+                try {
+                    // Update seller stats
+                    $seller = User::find($meetup->seller_id);
+                    if ($seller) {
+                        DB::table('users')
+                            ->where('id', $seller->id)
+                            ->update([
+                                'items_sold' => DB::raw('items_sold + 1'),
+                                'total_earnings' => DB::raw("total_earnings + {$saleAmount}"),
+                                'active_listings' => DB::raw('GREATEST(active_listings - 1, 0)'),
+                                'coins' => DB::raw('coins + 5'),
+                                'stats_last_updated' => now(),
+                            ]);
+
+                        $seller->refresh();
+
+                        // Create coin transaction
+                        CoinTransaction::create([
+                            'user_id' => $seller->id,
+                            'amount' => 5,
+                            'type' => 'sale_completed',
+                            'description' => 'Reward for completing sale of "' . $meetup->item->title . '"',
+                            'item_id' => $meetup->item_id,
+                            'balance_after' => $seller->coins,
+                        ]);
+                    }
+
+                    // Update buyer stats
+                    $buyer = User::find($meetup->buyer_id);
+                    if ($buyer) {
+                        DB::table('users')
+                            ->where('id', $buyer->id)
+                            ->update([
+                                'items_bought' => DB::raw('items_bought + 1'),
+                                'total_spent' => DB::raw("total_spent + {$saleAmount}"),
+                                'coins' => DB::raw('coins + 2'),
+                                'stats_last_updated' => now(),
+                            ]);
+
+                        $buyer->refresh();
+
+                        // Create coin transaction
+                        CoinTransaction::create([
+                            'user_id' => $buyer->id,
+                            'amount' => 2,
+                            'type' => 'purchase_completed',
+                            'description' => 'Reward for completing purchase of "' . $meetup->item->title . '"',
+                            'item_id' => $meetup->item_id,
+                            'balance_after' => $buyer->coins,
+                        ]);
+                    }
+
+                    Log::info('🎉 Transaction completed and all stats updated', [
+                        'transaction_id' => $transaction->id,
+                        'meetup_id' => $meetup->id,
+                        'buyer_id' => $meetup->buyer_id,
+                        'seller_id' => $meetup->seller_id,
+                        'sale_amount' => $saleAmount,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('⚠️ Failed to update user stats', [
+                        'transaction_id' => $transaction->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             } else {
                 Log::info('⏳ Waiting for other party confirmation', [
                     'meetup_id'        => $meetup->id,
@@ -764,11 +840,15 @@ class MeetupController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => $bothConfirmed
-                    ? 'Transaction completed! Coins awarded.'
+                    ? 'Transaction completed! You earned coins! 🎉'
                     : 'Confirmation recorded. Waiting for other party.',
                 'data'    => [
                     'meetup'         => $meetup->fresh(),
                     'both_confirmed' => $bothConfirmed,
+                    'coins_awarded'  => $bothConfirmed ? [
+                        'seller' => 5,
+                        'buyer' => 2,
+                    ] : null,
                 ],
             ]);
         } catch (\Exception $e) {
@@ -823,11 +903,13 @@ class MeetupController extends Controller
             ]);
 
             // Move offer to cancelled (shows in Inactive tab)
-            $meetup->offer->update([
-                'status'           => 'cancelled',
-                'cancelled_at'     => now(),
-                'rejection_reason' => $request->reason ?? 'Deal failed',
-            ]);
+            if ($meetup->offer) {
+                $meetup->offer->update([
+                    'status'           => 'cancelled',
+                    'cancelled_at'     => now(),
+                    'rejection_reason' => $request->reason ?? 'Deal failed',
+                ]);
+            }
 
             // Relist item if seller requests
             if ($request->boolean('relist') && $meetup->item->user_id === $user->id) {
@@ -839,10 +921,14 @@ class MeetupController extends Controller
                     'archived_at' => null,
                 ]);
 
+                // ✅ No need to update active_listings - item is back to active
+
                 Log::info('🔄 Item relisted', ['item_id' => $meetup->item->id]);
             } else {
-                // Just unreserve it if not relisting
+                // Just unreserve it if not relisting (but keep it reserved/inactive)
                 $meetup->item->update(['status' => 'active']);
+
+                // ✅ No update needed - item goes back to active
             }
 
             DB::commit();
@@ -869,6 +955,7 @@ class MeetupController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Mark meetup as completed (after successful exchange)
@@ -982,7 +1069,7 @@ class MeetupController extends Controller
 
         try {
             $user = Auth::user();
-            $meetup = Meetup::find($id);
+            $meetup = Meetup::with(['item'])->find($id);
 
             if (!$meetup) {
                 return response()->json([
@@ -1003,43 +1090,44 @@ class MeetupController extends Controller
             if (!in_array($meetup->status, ['meetup_scheduled', 'pending_meetup'])) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Meetup cannot be cancelled in current status'
+                    'message' => 'Cannot cancel meetup in current status'
                 ], 400);
             }
 
             DB::beginTransaction();
 
-            // Update meetup status
             $meetup->update([
                 'status' => 'cancelled',
                 'cancelled_at' => now(),
                 'cancellation_reason' => $request->reason,
             ]);
 
-            // Revert item status back to 'active'
-            $item = Item::find($meetup->item_id);
-            if ($item && $item->status === 'reserved') {
-                $item->update(['status' => 'active']);
-            }
+            // Unreserve item (make it active again)
+            $meetup->item->update([
+                'status' => 'active',
+            ]);
+
+            // ✅ No need to update active_listings here because item goes back to active
 
             // Update offer status if exists
             if ($meetup->offer_id) {
                 $offer = Offer::find($meetup->offer_id);
-                if ($offer && $offer->status === 'meetup_scheduled') {
-                    $offer->update(['status' => 'accepted']); // Revert to accepted
+                if ($offer) {
+                    $offer->update([
+                        'status' => 'cancelled',
+                        'cancelled_at' => now(),
+                        'rejection_reason' => $request->reason,
+                    ]);
                 }
             }
 
             DB::commit();
 
-            Log::info('✅ Meetup cancelled', [
+            Log::info('❌ Meetup cancelled', [
                 'meetup_id' => $meetup->id,
                 'cancelled_by' => $user->id,
                 'reason' => $request->reason,
             ]);
-
-            // TODO: Send notification to the other party
-            // NotificationService::sendMeetupCancellationNotification($meetup);
 
             return response()->json([
                 'success' => true,

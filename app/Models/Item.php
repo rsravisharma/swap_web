@@ -15,15 +15,15 @@ class Item extends Model
         'user_id',
         'title',
         'description',
-        'category_name',        // Added for hybrid approach
+        'category_name',        
         'category_id',
-        'sub_category_id',      // Fixed column name
-        'child_sub_category_id', // Fixed column name
+        'sub_category_id',     
+        'child_sub_category_id',
         'price',
         'condition',
         'status',
         'location_id',
-        'location',             // Added for hybrid approach
+        'location',            
         'contact_method',
         'tags',
         'is_sold',

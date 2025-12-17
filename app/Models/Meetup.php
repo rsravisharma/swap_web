@@ -22,10 +22,10 @@ class Meetup extends Model
         'buyer_notes',
         'acknowledged_safety',
         'status',
-        'buyer_confirmed',     
-        'seller_confirmed',    
-        'buyer_confirmed_at',  
-        'seller_confirmed_at', 
+        'buyer_confirmed',
+        'seller_confirmed',
+        'buyer_confirmed_at',
+        'seller_confirmed_at',
         'completed_at',
         'cancelled_at',
         'cancellation_reason',
@@ -65,35 +65,42 @@ class Meetup extends Model
     {
         return $this->belongsTo(Offer::class);
     }
-    
+
     // OPTIONAL: Add helper methods
     public function isPending()
     {
         return $this->status === 'pending_meetup';
     }
-    
+
     public function isScheduled()
     {
         return $this->status === 'meetup_scheduled';
     }
-    
+
     public function isCompleted()
     {
         return $this->status === 'completed';
     }
-    
+
     public function isCancelled()
     {
         return $this->status === 'cancelled';
     }
-    
+
     public function isFailed()
     {
         return $this->status === 'failed';
     }
-    
+
     public function bothPartiesConfirmed()
     {
         return $this->buyer_confirmed && $this->seller_confirmed;
+    }
+
+    public function transaction()
+    {
+        return $this->hasOne(Transaction::class, 'item_id', 'item_id')
+            ->where('buyer_id', $this->buyer_id)
+            ->where('seller_id', $this->seller_id);
     }
 }
