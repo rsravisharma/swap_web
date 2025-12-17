@@ -33,7 +33,14 @@ return new class extends Migration
 
             $table->boolean('acknowledged_safety')->default(false);
 
-            $table->enum('status', ['pending', 'confirmed', 'completed', 'cancelled'])->default('pending');
+            $table->enum('status', [
+                'pending_meetup',
+                'meetup_scheduled',
+                'completed',
+                'cancelled',
+                'failed'
+            ])->default('pending_meetup');
+
             $table->boolean('buyer_confirmed')->default(false);
             $table->boolean('seller_confirmed')->default(false);
             $table->timestamp('buyer_confirmed_at')->nullable();
