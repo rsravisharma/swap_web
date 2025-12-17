@@ -334,7 +334,7 @@ class MeetupController extends Controller
                     'payment_method' => $request->agreedPaymentMethod,
                     'buyer_notes' => $request->buyerNotes,
                     'acknowledged_safety' => $request->acknowledgedSafety,
-                    'status' => 'pending',
+                    'status' => 'pending_meetup',
                     'created_at' => now(),
                 ]);
 
@@ -526,26 +526,41 @@ class MeetupController extends Controller
             $sellerId = $offer->item->user_id;
             $buyerId  = $offer->sender_id === $sellerId ? $offer->receiver_id : $offer->sender_id;
 
+            // ✅ NEW: Determine who is creating the meetup
+            $isSeller = $user->id === $sellerId;
+            $isBuyer = $user->id === $buyerId;
+
             DB::beginTransaction();
+
+            $meetupData = [
+                'buyer_id'                => $buyerId,
+                'seller_id'               => $sellerId,
+                'item_id'                 => $offer->item_id,
+                'agreed_price'            => $offer->amount,
+                'original_price'          => $offer->item->price,
+                'meetup_location'         => $request->meetup_location,
+                'meetup_location_type'    => $request->meetup_location_type,
+                'meetup_location_details' => $request->meetup_location_details,
+                'preferred_meetup_time'   => $request->preferred_meetup_time,
+                'alternative_meetup_time' => $request->alternative_meetup_time,
+                'payment_method'          => $request->payment_method,
+                'buyer_notes'             => $request->buyer_notes,
+                'acknowledged_safety'     => $request->acknowledged_safety,
+                'status'                  => 'pending_meetup', // ✅ FIXED: Use pending_meetup
+            ];
+
+            // ✅ NEW: Auto-confirm the party creating the meetup
+            if ($isSeller) {
+                $meetupData['seller_confirmed'] = true;
+                $meetupData['seller_confirmed_at'] = now();
+            } elseif ($isBuyer) {
+                $meetupData['buyer_confirmed'] = true;
+                $meetupData['buyer_confirmed_at'] = now();
+            }
 
             $meetup = Meetup::updateOrCreate(
                 ['offer_id' => $offer->id],
-                [
-                    'buyer_id'                => $buyerId,
-                    'seller_id'               => $sellerId,
-                    'item_id'                 => $offer->item_id,
-                    'agreed_price'            => $offer->amount,
-                    'original_price'          => $offer->item->price,
-                    'meetup_location'         => $request->meetup_location,
-                    'meetup_location_type'    => $request->meetup_location_type,
-                    'meetup_location_details' => $request->meetup_location_details,
-                    'preferred_meetup_time'   => $request->preferred_meetup_time,
-                    'alternative_meetup_time' => $request->alternative_meetup_time,
-                    'payment_method'          => $request->payment_method,
-                    'buyer_notes'             => $request->buyer_notes,
-                    'acknowledged_safety'     => $request->acknowledged_safety,
-                    'status'                  => 'meetup_scheduled',
-                ]
+                $meetupData
             );
 
             // Mark item as reserved (not sold yet)
@@ -557,6 +572,7 @@ class MeetupController extends Controller
                 'meetup_id' => $meetup->id,
                 'offer_id'  => $offer->id,
                 'scheduled_by' => $user->id,
+                'auto_confirmed' => $isSeller ? 'seller' : ($isBuyer ? 'buyer' : 'none'),
             ]);
 
             return response()->json([
@@ -610,14 +626,43 @@ class MeetupController extends Controller
                 return response()->json(['success' => false, 'message' => 'Cannot update meetup in current status'], 400);
             }
 
-            $meetup->update($request->only([
+            // ✅ NEW: Determine who is rescheduling
+            $isSeller = $user->id === $meetup->seller_id;
+            $isBuyer = $user->id === $meetup->buyer_id;
+
+            // Update meetup fields
+            $updateData = $request->only([
                 'meetup_location',
                 'meetup_location_type',
                 'preferred_meetup_time',
                 'alternative_meetup_time',
-            ]));
+            ]);
 
-            Log::info('✅ Meetup updated', ['meetup_id' => $meetup->id, 'updated_by' => $user->id]);
+            // ✅ NEW: Auto-confirm the party that rescheduled
+            if ($isSeller) {
+                $updateData['seller_confirmed'] = true;
+                $updateData['seller_confirmed_at'] = now();
+                Log::info('🔄 Seller rescheduled and auto-confirmed', [
+                    'meetup_id' => $meetup->id,
+                    'seller_id' => $user->id,
+                ]);
+            } elseif ($isBuyer) {
+                $updateData['buyer_confirmed'] = true;
+                $updateData['buyer_confirmed_at'] = now();
+                Log::info('🔄 Buyer rescheduled and auto-confirmed', [
+                    'meetup_id' => $meetup->id,
+                    'buyer_id' => $user->id,
+                ]);
+            }
+
+            $meetup->update($updateData);
+
+            Log::info('✅ Meetup updated', [
+                'meetup_id' => $meetup->id,
+                'updated_by' => $user->id,
+                'seller_confirmed' => $meetup->seller_confirmed,
+                'buyer_confirmed' => $meetup->buyer_confirmed,
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -862,7 +907,7 @@ class MeetupController extends Controller
             }
 
             // Can only complete pending or confirmed meetups
-            if (!in_array($meetup->status, ['pending', 'confirmed'])) {
+            if (!in_array($meetup->status, ['meetup_scheduled', 'pending_meetup'])) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Meetup cannot be completed in current status'
