@@ -605,7 +605,8 @@ class MeetupController extends Controller
                 return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
             }
 
-            if (!in_array($meetup->status, ['meetup_scheduled', 'pending'])) {
+            // ✅ FIXED: Include 'pending_meetup' status
+            if (!in_array($meetup->status, ['meetup_scheduled', 'pending_meetup'])) {
                 return response()->json(['success' => false, 'message' => 'Cannot update meetup in current status'], 400);
             }
 
@@ -665,7 +666,7 @@ class MeetupController extends Controller
                 return response()->json(['success' => false, 'message' => 'Only seller can confirm as seller'], 403);
             }
 
-            if (!in_array($meetup->status, ['meetup_scheduled', 'pending'])) {
+            if (!in_array($meetup->status, ['meetup_scheduled', 'pending_meetup'])) {
                 return response()->json(['success' => false, 'message' => 'Meetup cannot be confirmed in current status'], 400);
             }
 
@@ -764,7 +765,7 @@ class MeetupController extends Controller
                 return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
             }
 
-            if (!in_array($meetup->status, ['meetup_scheduled', 'pending'])) {
+            if (!in_array($meetup->status, ['meetup_scheduled', 'pending_meetup'])) {
                 return response()->json(['success' => false, 'message' => 'Cannot mark as failed in current status'], 400);
             }
 
@@ -954,7 +955,7 @@ class MeetupController extends Controller
             }
 
             // Can only cancel pending or confirmed meetups
-            if (!in_array($meetup->status, ['pending', 'confirmed'])) {
+            if (!in_array($meetup->status, ['meetup_scheduled', 'pending_meetup'])) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Meetup cannot be cancelled in current status'
