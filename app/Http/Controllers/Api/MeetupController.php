@@ -52,16 +52,46 @@ class MeetupController extends Controller
                 $query->where('status', $status);
             }
 
-            // Load relationships
+            // ✅ FIXED: Load images as relationship, not column
             $meetups = $query->with([
-                'buyer:id,name,email,phone',
-                'seller:id,name,email,phone',
-                'item:id,title,description,price,category_name,location,images',
+                'buyer:id,name,email,phone,profile_image',
+                'seller:id,name,email,phone,profile_image',
+                'item:id,title,description,price,category_name,location,tags',
+                'item.images:id,item_id,image_path,is_primary,order',
+                'item.primaryImage:id,item_id,image_path,is_primary',
                 'offer:id,amount,message,status'
             ])
                 ->orderBy('preferred_meetup_time', 'asc')
                 ->orderBy('created_at', 'desc')
                 ->get();
+
+            // ✅ Format images for each meetup
+            $meetupsData = $meetups->map(function ($meetup) {
+                $data = $meetup->toArray();
+
+                if (isset($data['item'])) {
+                    $data['item']['images'] = collect($data['item']['images'] ?? [])
+                        ->map(function ($image) {
+                            return [
+                                'id' => $image['id'],
+                                'url' => asset('storage/' . $image['image_path']),
+                                'is_primary' => $image['is_primary'] ?? false,
+                            ];
+                        })
+                        ->toArray();
+
+                    // Add primary_image
+                    if (isset($data['item']['primary_image']) && $data['item']['primary_image']) {
+                        $data['item']['primary_image'] = asset('storage/' . $data['item']['primary_image']['image_path']);
+                    } elseif (!empty($data['item']['images'])) {
+                        $data['item']['primary_image'] = $data['item']['images'][0]['url'];
+                    } else {
+                        $data['item']['primary_image'] = null;
+                    }
+                }
+
+                return $data;
+            });
 
             Log::info('✅ Meetups fetched', [
                 'count' => $meetups->count(),
@@ -69,7 +99,7 @@ class MeetupController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $meetups,
+                'data' => $meetupsData,
                 'meta' => [
                     'total' => $meetups->count(),
                     'role' => $role,
@@ -90,6 +120,7 @@ class MeetupController extends Controller
         }
     }
 
+
     /**
      * Get single meetup details
      */
@@ -98,10 +129,13 @@ class MeetupController extends Controller
         try {
             $user = Auth::user();
 
+            // ✅ Load item images as relationship, not as column
             $meetup = Meetup::with([
-                'buyer:id,name,email,phone',
-                'seller:id,name,email,phone',
-                'item:id,title,description,price,category_name,condition,location,images,tags',
+                'buyer:id,name,email,phone,profile_image',
+                'seller:id,name,email,phone,profile_image',
+                'item:id,title,description,price,category_name,condition,location,tags',
+                'item.images:id,item_id,image_path,is_primary,order',
+                'item.primaryImage:id,item_id,image_path,is_primary',
                 'offer:id,amount,message,status,offer_type'
             ])->find($id);
 
@@ -120,19 +154,48 @@ class MeetupController extends Controller
                 ], 403);
             }
 
+            // ✅ Format response to match Flutter expectations
+            $meetupData = $meetup->toArray();
+
+            // ✅ Format item images to array of URLs
+            if (isset($meetupData['item'])) {
+                // Convert images relationship to simple array
+                $meetupData['item']['images'] = collect($meetupData['item']['images'] ?? [])
+                    ->map(function ($image) {
+                        return [
+                            'id' => $image['id'],
+                            'url' => asset('storage/' . $image['image_path']),
+                            'is_primary' => $image['is_primary'] ?? false,
+                        ];
+                    })
+                    ->toArray();
+
+                // Add primary_image field for convenience
+                if (isset($meetupData['item']['primary_image']) && $meetupData['item']['primary_image']) {
+                    $meetupData['item']['primary_image'] = asset('storage/' . $meetupData['item']['primary_image']['image_path']);
+                } elseif (!empty($meetupData['item']['images'])) {
+                    // Fallback to first image if no primary
+                    $meetupData['item']['primary_image'] = $meetupData['item']['images'][0]['url'];
+                } else {
+                    $meetupData['item']['primary_image'] = null;
+                }
+            }
+
             Log::info('✅ Meetup details fetched', [
                 'meetup_id' => $meetup->id,
                 'user_id' => $user->id,
+                'has_images' => count($meetupData['item']['images'] ?? []),
             ]);
 
             return response()->json([
                 'success' => true,
-                'data' => $meetup
+                'data' => $meetupData
             ]);
         } catch (\Exception $e) {
             Log::error('❌ Failed to fetch meetup details', [
                 'meetup_id' => $id,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
@@ -142,6 +205,8 @@ class MeetupController extends Controller
             ], 500);
         }
     }
+
+
 
     /**
      * Confirm meetup (seller confirms the meetup details)
@@ -282,7 +347,7 @@ class MeetupController extends Controller
                     }
                 }
 
-                // Prepare images array with proper URLs using the ItemImage model
+                // ✅ Prepare images array with proper URLs using the ItemImage model
                 $images = [];
                 if ($item->images && $item->images->count() > 0) {
                     foreach ($item->images as $image) {
@@ -314,7 +379,7 @@ class MeetupController extends Controller
                     'offerId' => $itemData['offerId'] ?? null,
                     'offerType' => $itemData['offerType'] ?? null,
                     'offerAmount' => isset($itemData['offerAmount']) ? (float)$itemData['offerAmount'] : null,
-                    'offerMessage' => isset($itemData['offerMessage']) ? $itemData['offerMessage'] : null,
+                    'offerMessage' => $itemData['offerMessage'] ?? null,
                 ];
 
                 $itemsWithDetails[] = $itemDetails;
@@ -352,6 +417,7 @@ class MeetupController extends Controller
                 ? 'Meetup confirmed successfully! The buyer will be notified.'
                 : 'Meetup confirmed successfully! The seller will be notified.';
 
+            // ✅ FIXED: Use profile_image directly, not full_profile_image_url accessor
             $responseData = [
                 'meetups' => $meetups,
                 'items' => $itemsWithDetails,

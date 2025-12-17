@@ -46,6 +46,8 @@ class Item extends Model
         'archived_at' => 'datetime',
     ];
 
+    protected $appends = ['primary_image_url'];
+
     // Auto-populate cached fields when saving
     protected static function booted()
     {
@@ -55,6 +57,23 @@ class Item extends Model
                 $item->category_name = $item->category->name ?? null;
             }
         });
+    }
+
+    public function getPrimaryImageUrlAttribute()
+    {
+        $primary = $this->primaryImage;
+
+        if ($primary && $primary->image_path) {
+            return asset('storage/' . $primary->image_path);
+        }
+
+        // Fallback to first image
+        $firstImage = $this->images()->first();
+        if ($firstImage && $firstImage->image_path) {
+            return asset('storage/' . $firstImage->image_path);
+        }
+
+        return null;
     }
 
     // Relationships
