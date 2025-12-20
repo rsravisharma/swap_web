@@ -502,19 +502,25 @@ Route::middleware('auth:sanctum')->group(function () {
     // PAYMENT ROUTES - FIXED ORDER
     // ================================
     Route::prefix('payment')->group(function () {
-        Route::get('methods', [PaymentController::class, 'getPaymentMethods']);
-        Route::get('saved-cards', [PaymentController::class, 'getSavedPaymentMethods']);
-        Route::get('history', [PaymentController::class, 'getPaymentHistory']);
+        // Create Razorpay order
+        Route::post('/create-order', [PaymentController::class, 'createOrder']);
 
-        Route::post('add-method', [PaymentController::class, 'addPaymentMethod']);
-        Route::post('process', [PaymentController::class, 'processPayment']);
-        Route::post('validate-card', [PaymentController::class, 'validateCard']);
+        // Verify payment after success
+        Route::post('/verify', [PaymentController::class, 'verifyPayment']);
 
-        Route::put('methods/{cardId}', [PaymentController::class, 'updatePaymentMethod']);
-        Route::delete('methods/{cardId}', [PaymentController::class, 'deletePaymentMethod']);
+        // Handle payment failure
+        Route::post('/failed', [PaymentController::class, 'handlePaymentFailure']);
 
-        Route::get('{paymentId}', [PaymentController::class, 'getPaymentDetails']);
-        Route::post('{paymentId}/refund', [PaymentController::class, 'refundPayment']);
+        // Get payment history
+        Route::get('/history', [PaymentController::class, 'getPaymentHistory']);
+
+        Route::get('/methods', [PaymentController::class, 'getPaymentMethods']);
+
+        // Get specific payment details
+        Route::get('/{paymentId}', [PaymentController::class, 'getPaymentDetails']);
+
+        // Process refund
+        Route::post('/{paymentId}/refund', [PaymentController::class, 'refundPayment']);
     });
 
     Route::prefix('wishlist')->group(function () {

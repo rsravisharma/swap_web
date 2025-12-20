@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('payment_transactions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('payment_method_id')->constrained('user_payment_methods')->cascadeOnDelete();
+            $table->foreignId('payment_method_id')->nullable()->constrained('user_payment_methods')->nullOnDelete();
             $table->foreignId('order_id')->nullable()->constrained()->nullOnDelete();
             $table->decimal('amount', 10, 2);
             $table->string('currency', 3)->default('USD');
@@ -26,9 +26,11 @@ return new class extends Migration
             $table->text('refund_reason')->nullable();
             $table->timestamp('processed_at')->nullable();
             $table->timestamp('refunded_at')->nullable();
-            $table->string('failure_reason')->nullable(); // Reason for failed payments
+            $table->string('failure_reason')->nullable(); 
+            $table->string('payment_method_type')->nullable(); 
+            $table->json('payment_method_details')->nullable();
             $table->timestamps();
-            
+
             $table->index(['user_id', 'status']);
             $table->index(['user_id', 'created_at']);
             $table->index('gateway_transaction_id');

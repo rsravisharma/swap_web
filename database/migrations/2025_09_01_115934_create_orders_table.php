@@ -14,21 +14,26 @@ return new class extends Migration
             $table->foreignId('payment_method_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('delivery_option_id')->nullable()->constrained()->nullOnDelete();
             $table->json('delivery_address');
+            $table->string('razorpay_order_id')->nullable()->unique()->after('user_id');
+            $table->string('razorpay_payment_id')->nullable()->after('razorpay_order_id');
+            $table->string('razorpay_signature')->nullable()->after('razorpay_payment_id');
             $table->text('notes')->nullable();
-            
+
             // Define columns in the order you want them
             $table->enum('status', ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'])
-                  ->default('pending');
+                ->default('pending');
             $table->enum('payment_status', ['pending', 'paid', 'failed', 'refunded', 'partially_refunded'])
-                  ->default('pending'); 
-            $table->timestamp('paid_at')->nullable(); 
-            
+                ->default('pending');
+            $table->timestamp('paid_at')->nullable();
+
             $table->decimal('total_amount', 10, 2);
             $table->timestamp('cancelled_at')->nullable();
             $table->timestamps();
-            
+
             $table->index(['user_id', 'status']);
             $table->index(['user_id', 'created_at']);
+            $table->index('razorpay_order_id');
+            $table->index('razorpay_payment_id');
             $table->index('status');
         });
     }

@@ -16,13 +16,19 @@ class Order extends Model
         'delivery_address',
         'notes',
         'status',
+        'payment_status',
         'total_amount',
+        'razorpay_order_id',
+        'razorpay_payment_id',
+        'razorpay_signature',
+        'paid_at',
         'cancelled_at'
     ];
 
     protected $casts = [
         'delivery_address' => 'json',
         'total_amount' => 'decimal:2',
+        'paid_at' => 'datetime',
         'cancelled_at' => 'datetime'
     ];
 
