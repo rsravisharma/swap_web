@@ -10,13 +10,13 @@ return new class extends Migration
     {
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
+            $table->string('razorpay_order_id')->nullable()->unique();
+            $table->string('razorpay_payment_id')->nullable();
+            $table->string('razorpay_signature')->nullable();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('payment_method_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('delivery_option_id')->nullable()->constrained()->nullOnDelete();
             $table->json('delivery_address');
-            $table->string('razorpay_order_id')->nullable()->unique()->after('user_id');
-            $table->string('razorpay_payment_id')->nullable()->after('razorpay_order_id');
-            $table->string('razorpay_signature')->nullable()->after('razorpay_payment_id');
             $table->text('notes')->nullable();
 
             // Define columns in the order you want them
