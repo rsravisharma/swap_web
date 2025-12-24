@@ -771,8 +771,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('transactions', [ReferralController::class, 'getTransactionHistory'])->name('transactions');
     });
 
-    // Transaction Details
-    Route::get('transactions/{transactionId}', [SocialController::class, 'getTransactionDetails'])->name('transactions.show');
 
     // ================================
     // SUPPORT & HELP [web:52]

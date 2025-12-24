@@ -620,43 +620,6 @@ class SocialController extends Controller
     }
 
     /**
-     * Get transaction details
-     * GET /transactions/{transactionId}
-     */
-    public function getTransactionDetails(string $transactionId): JsonResponse
-    {
-        try {
-            $authUser = Auth::user();
-
-            $transaction = Transaction::where('id', $transactionId)
-                ->where(function ($query) use ($authUser) {
-                    $query->where('buyer_id', $authUser->id)
-                        ->orWhere('seller_id', $authUser->id);
-                })
-                ->with(['buyer:id,name,profile_image', 'seller:id,name,profile_image', 'item'])
-                ->first();
-
-            if (!$transaction) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Transaction not found or unauthorized'
-                ], 404);
-            }
-
-            return response()->json([
-                'success' => true,
-                'data' => $transaction
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Failed to get transaction details: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve transaction details'
-            ], 500);
-        }
-    }
-
-    /**
      * Get top sellers
      * GET /users/top-sellers
      */
