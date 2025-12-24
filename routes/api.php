@@ -703,59 +703,55 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('{key}', [SettingsController::class, 'deleteSetting'])->name('delete');
     });
 
-       // ================================
-    // CURRENT USER OPERATIONS (singular 'user')
+
+     // ================================
+    // COINS MANAGEMENT (user prefix - singular)
     // ================================
-    
-    // User Profile
-    Route::prefix('user')->name('user.')->group(function () {
-        Route::get('profile', [UserController::class, 'getProfile'])->name('profile');
-        Route::put('update-profile', [UserController::class, 'updateProfile'])->name('update-profile');
-        Route::get('notification-settings', [UserController::class, 'getNotificationSettings'])->name('notification-settings');
-        Route::put('notification-settings', [UserController::class, 'updateNotificationSettings'])->name('notification-settings.update');
-    });
-    
-    // Coins Management
     Route::prefix('user/coins')->name('user.coins.')->group(function () {
         Route::get('balance', [CoinsController::class, 'getBalance'])->name('balance');
         Route::get('packages', [CoinsController::class, 'getPackages'])->name('packages');
         Route::get('transactions', [CoinsController::class, 'getTransactionHistory'])->name('transactions');
         Route::post('purchase', [CoinsController::class, 'purchaseCoins'])->name('purchase');
         Route::post('deduct', [CoinsController::class, 'deductCoins'])->name('deduct');
-        Route::post('award-bonus', [CoinsController::class, 'awardBonus'])->middleware('admin')->name('award-bonus');
+        
+        // Admin only - Award bonus coins
+        Route::post('award-bonus', [CoinsController::class, 'awardBonus'])
+            ->middleware('admin')->name('award-bonus');
     });
-    
-    // Subscription Management
+
+    // ================================
+    // SUBSCRIPTION MANAGEMENT (user prefix - singular)
+    // ================================
     Route::prefix('user/subscription')->name('user.subscription.')->group(function () {
         Route::get('status', [SubscriptionController::class, 'getStatus'])->name('status');
         Route::post('purchase', [SubscriptionController::class, 'purchaseSubscription'])->name('purchase');
         Route::post('cancel', [SubscriptionController::class, 'cancelSubscription'])->name('cancel');
         Route::post('toggle-renewal', [SubscriptionController::class, 'toggleAutoRenewal'])->name('toggle-renewal');
     });
-    
+
     // ================================
-    // OTHER USERS OPERATIONS (plural 'users')
+    // SOCIAL & USER INTERACTIONS (users prefix - plural)
     // ================================
-    
     Route::prefix('users')->name('users.')->group(function () {
-        // List/Collection Routes
+        // Top Users
         Route::get('top-sellers', [SocialController::class, 'getTopSellers'])->name('top-sellers');
-        
-        // Specific User Operations (by ID)
+
+        // User-specific Operations
         Route::prefix('{userId}')->name('show.')->group(function () {
             Route::get('/', [ProfileController::class, 'getUserDetails'])->name('index');
             Route::get('followers', [SocialController::class, 'getFollowers'])->name('followers');
             Route::get('following', [SocialController::class, 'getFollowing'])->name('following');
             Route::get('ratings', [SocialController::class, 'getUserRatings'])->name('ratings');
             Route::get('items', [ItemController::class, 'getUserItems'])->name('items');
-            
+
             // Social Actions
             Route::post('toggle-follow', [SocialController::class, 'toggleFollow'])->name('toggle-follow');
             Route::post('follow', [SocialController::class, 'toggleFollow'])->name('follow');
             Route::post('block', [ProfileController::class, 'toggleBlock'])->name('block');
             Route::post('unblock', [ProfileController::class, 'toggleBlock'])->name('unblock');
         });
-        
+
+        // Remove Follower
         Route::delete('followers/{userId}', [SocialController::class, 'removeFollower'])->name('followers.remove');
     });
 
