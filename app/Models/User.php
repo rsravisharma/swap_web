@@ -804,4 +804,16 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return max(0, $amount - $this->coins);
     }
+
+    public function subscriptions()
+    {
+        return $this->hasMany(UserSubscription::class)->orderBy('created_at', 'desc');
+    }
+
+    public function activeSubscription()
+    {
+        return $this->hasOne(UserSubscription::class)
+            ->where('status', 'active')
+            ->where('expires_at', '>', now());
+    }
 }

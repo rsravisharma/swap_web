@@ -48,7 +48,7 @@ class PaymentController extends Controller
     public function createOrder(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'order_id' => 'required|integer|exists:orders,id', // Your existing marketplace order
+            'order_id' => 'required|integer|exists:orders,id', 
             'notes' => 'nullable|array'
         ]);
 
