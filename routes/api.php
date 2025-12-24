@@ -704,7 +704,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
 
-     // ================================
+    // ================================
     // COINS MANAGEMENT (user prefix - singular)
     // ================================
     Route::prefix('user/coins')->name('user.coins.')->group(function () {
@@ -713,7 +713,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('transactions', [CoinsController::class, 'getTransactionHistory'])->name('transactions');
         Route::post('purchase', [CoinsController::class, 'purchaseCoins'])->name('purchase');
         Route::post('deduct', [CoinsController::class, 'deductCoins'])->name('deduct');
-        
+
         // Admin only - Award bonus coins
         Route::post('award-bonus', [CoinsController::class, 'awardBonus'])
             ->middleware('admin')->name('award-bonus');
@@ -811,4 +811,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // ================================
 
     Route::post('clear-cache', [CategoryController::class, 'clearCache'])->name('cache.clear');
+    Route::get('/test-razorpay-config', function () {
+        return response()->json([
+            'key_exists' => !empty(config('services.razorpay.key')),
+            'secret_exists' => !empty(config('services.razorpay.secret')),
+            'key_preview' => substr(config('services.razorpay.key'), 0, 10) . '...',
+        ]);
+    })->middleware('auth:sanctum');
 });

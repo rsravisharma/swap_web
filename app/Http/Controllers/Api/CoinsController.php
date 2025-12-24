@@ -28,7 +28,7 @@ class CoinsController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Get transaction history with pagination
             $limit = $request->input('limit', 20);
             $transactions = $user->coinTransactions()
@@ -117,7 +117,7 @@ class CoinsController extends Controller
     {
         // Validation rules change based on whether this is order creation or verification
         $isVerification = $request->has('razorpay_payment_id');
-        
+
         $rules = [
             'coins' => 'required|integer|min:10|max:100000',
         ];
@@ -152,7 +152,6 @@ class CoinsController extends Controller
 
             // STEP 1: Create Razorpay order
             return $this->createCoinPurchaseOrder($user, $coins, $amount);
-
         } catch (Exception $e) {
             Log::error('Coin purchase failed', [
                 'user_id' => Auth::id(),
@@ -181,7 +180,21 @@ class CoinsController extends Controller
     private function createCoinPurchaseOrder(User $user, int $coins, float $amount)
     {
         try {
-            $api = new Api(env('RAZORPAY_KEY_ID'), env('RAZORPAY_SECRET'));
+            // 🔥 FIX: Use config() instead of env()
+            $razorpayKey = config('services.razorpay.key');
+            $razorpaySecret = config('services.razorpay.secret');
+
+            // Check if credentials exist
+            if (empty($razorpayKey) || empty($razorpaySecret)) {
+                Log::error('Razorpay credentials not configured', [
+                    'key_exists' => !empty($razorpayKey),
+                    'secret_exists' => !empty($razorpaySecret),
+                ]);
+
+                throw new Exception('Payment gateway not configured');
+            }
+
+            $api = new Api($razorpayKey, $razorpaySecret);
 
             $amountInPaise = $amount * 100; // Convert to paise
 
@@ -206,7 +219,14 @@ class CoinsController extends Controller
                 'amount' => $coins,
                 'type' => 'coin_purchase_pending',
                 'description' => "Pending coin purchase - {$coins} coins",
-                'balance_after' => $user->coins, // Current balance, not updated yet
+                'balance_after' => $user->coins,
+            ]);
+
+            Log::info('Razorpay order created successfully', [
+                'user_id' => $user->id,
+                'order_id' => $razorpayOrder['id'],
+                'coins' => $coins,
+                'amount' => $amount,
             ]);
 
             return response()->json([
@@ -218,7 +238,7 @@ class CoinsController extends Controller
                     'amount_in_rupees' => $amount,
                     'currency' => $razorpayOrder['currency'],
                     'coins' => $coins,
-                    'razorpay_key' => env('RAZORPAY_KEY_ID'),
+                    'razorpay_key' => $razorpayKey, // 🔥 FIX: Use variable
                     'user' => [
                         'name' => $user->name,
                         'email' => $user->email,
@@ -227,15 +247,29 @@ class CoinsController extends Controller
                     'transaction_id' => $pendingTransaction->id,
                 ],
             ], 200);
+        } catch (\Razorpay\Api\Errors\SignatureVerificationError $e) {
+            Log::error('Razorpay authentication failed', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
 
+            throw new Exception('Authentication failed');
+        } catch (\Razorpay\Api\Errors\BadRequestError $e) {
+            Log::error('Razorpay bad request', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw new Exception('Invalid request: ' . $e->getMessage());
         } catch (Exception $e) {
             Log::error('Razorpay order creation failed for coins', [
                 'user_id' => $user->id,
                 'coins' => $coins,
                 'amount' => $amount,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
-            
+
             throw $e;
         }
     }
@@ -252,7 +286,11 @@ class CoinsController extends Controller
     private function verifyCoinPurchase(Request $request, User $user, int $coins, float $amount)
     {
         try {
-            $api = new Api(env('RAZORPAY_KEY_ID'), env('RAZORPAY_SECRET'));
+            // 🔥 FIX: Use config() instead of env()
+            $api = new Api(
+                config('services.razorpay.key'),
+                config('services.razorpay.secret')
+            );
 
             // Verify signature
             $attributes = [
@@ -280,11 +318,11 @@ class CoinsController extends Controller
                     'balance_after' => $user->coins,
                 ]);
 
-                // Create payment transaction record (matching your PaymentController structure)
+                // Create payment transaction record
                 $paymentTransaction = PaymentTransaction::create([
                     'user_id' => $user->id,
                     'payment_method_id' => null,
-                    'order_id' => null, // No order for direct coin purchase
+                    'order_id' => null,
                     'amount' => $amount,
                     'currency' => $payment['currency'] ?? 'INR',
                     'status' => 'completed',
@@ -329,12 +367,10 @@ class CoinsController extends Controller
                         ],
                     ],
                 ], 200);
-
             } catch (Exception $e) {
                 DB::rollBack();
                 throw $e;
             }
-
         } catch (\Razorpay\Api\Errors\SignatureVerificationError $e) {
             Log::error('Coin purchase signature verification failed', [
                 'user_id' => $user->id,
@@ -442,12 +478,10 @@ class CoinsController extends Controller
                         ],
                     ],
                 ], 200);
-
             } catch (Exception $e) {
                 DB::rollBack();
                 throw $e;
             }
-
         } catch (Exception $e) {
             Log::error('Coin deduction failed', [
                 'user_id' => Auth::id(),
@@ -542,7 +576,6 @@ class CoinsController extends Controller
                     'payment_methods' => ['UPI', 'Card', 'Net Banking', 'Wallet'],
                 ],
             ], 200);
-
         } catch (Exception $e) {
             Log::error('Failed to fetch coin packages', [
                 'error' => $e->getMessage(),
@@ -618,7 +651,6 @@ class CoinsController extends Controller
                     ],
                 ],
             ], 200);
-
         } catch (Exception $e) {
             Log::error('Get transaction history failed', [
                 'user_id' => Auth::id(),
@@ -707,12 +739,10 @@ class CoinsController extends Controller
                         'awarded_by' => $admin->name,
                     ],
                 ], 200);
-
             } catch (Exception $e) {
                 DB::rollBack();
                 throw $e;
             }
-
         } catch (Exception $e) {
             Log::error('Award bonus coins failed', [
                 'admin_id' => Auth::id(),
