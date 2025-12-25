@@ -8,6 +8,7 @@ use App\Models\CoinTransaction;
 use App\Models\PaymentTransaction;
 use App\Models\SubscriptionPlan;
 use Illuminate\Http\Request;
+use App\Services\RazorpayService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -17,13 +18,13 @@ use Exception;
 
 class CoinsController extends Controller
 {
-    /**
-     * Get user's coin balance and transaction history
-     * GET /user/coins/balance
-     * 
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
+    protected $razorpayService;
+
+    public function __construct(RazorpayService $razorpayService)
+    {
+        $this->razorpayService = $razorpayService;
+    }
+
     public function getBalance(Request $request)
     {
         try {
@@ -180,23 +181,7 @@ class CoinsController extends Controller
     private function createCoinPurchaseOrder(User $user, int $coins, float $amount)
     {
         try {
-            // 🔥 FIX: Use config() instead of env()
-            $razorpayKey = config('services.razorpay.key');
-            $razorpaySecret = config('services.razorpay.secret');
-
-            // Check if credentials exist
-            if (empty($razorpayKey) || empty($razorpaySecret)) {
-                Log::error('Razorpay credentials not configured', [
-                    'key_exists' => !empty($razorpayKey),
-                    'secret_exists' => !empty($razorpaySecret),
-                ]);
-
-                throw new Exception('Payment gateway not configured');
-            }
-
-            $api = new Api($razorpayKey, $razorpaySecret);
-
-            $amountInPaise = $amount * 100; // Convert to paise
+            $amountInPaise = $amount * 100;
 
             $orderData = [
                 'amount' => $amountInPaise,
@@ -211,22 +196,16 @@ class CoinsController extends Controller
                 ]
             ];
 
-            $razorpayOrder = $api->order->create($orderData);
+            // 🔥 Use the service instead of creating Api directly
+            $razorpayOrder = $this->razorpayService->createOrder($orderData);
 
-            // Optional: Store pending transaction
+            // Store pending transaction
             $pendingTransaction = CoinTransaction::create([
                 'user_id' => $user->id,
                 'amount' => $coins,
                 'type' => 'coin_purchase_pending',
                 'description' => "Pending coin purchase - {$coins} coins",
                 'balance_after' => $user->coins,
-            ]);
-
-            Log::info('Razorpay order created successfully', [
-                'user_id' => $user->id,
-                'order_id' => $razorpayOrder['id'],
-                'coins' => $coins,
-                'amount' => $amount,
             ]);
 
             return response()->json([
@@ -238,71 +217,48 @@ class CoinsController extends Controller
                     'amount_in_rupees' => $amount,
                     'currency' => $razorpayOrder['currency'],
                     'coins' => $coins,
-                    'razorpay_key' => $razorpayKey, // 🔥 FIX: Use variable
+                    'razorpay_key' => config('services.razorpay.key'),
                     'user' => [
-                        'name' => $user->name,
-                        'email' => $user->email,
-                        'phone' => $user->phone,
+                        'name' => $user->name ?? 'Customer',
+                        'email' => $user->email ?? '',
+                        'phone' => $user->phone ?? '',
                     ],
                     'transaction_id' => $pendingTransaction->id,
                 ],
             ], 200);
-        } catch (\Razorpay\Api\Errors\SignatureVerificationError $e) {
-            Log::error('Razorpay authentication failed', [
+        } catch (\Razorpay\Api\Errors\Error $e) {
+            Log::error('Razorpay API Error', [
                 'user_id' => $user->id,
-                'error' => $e->getMessage(),
+                'error_class' => get_class($e),
+                'error_message' => $e->getMessage(),
             ]);
 
-            throw new Exception('Authentication failed');
-        } catch (\Razorpay\Api\Errors\BadRequestError $e) {
-            Log::error('Razorpay bad request', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-            ]);
-
-            throw new Exception('Invalid request: ' . $e->getMessage());
+            throw new Exception('Payment gateway error: ' . $e->getMessage());
         } catch (Exception $e) {
-            Log::error('Razorpay order creation failed for coins', [
+            Log::error('Order creation failed', [
                 'user_id' => $user->id,
                 'coins' => $coins,
-                'amount' => $amount,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
             ]);
 
             throw $e;
         }
     }
 
-    /**
-     * Verify Razorpay payment and credit coins
-     * 
-     * @param Request $request
-     * @param User $user
-     * @param int $coins
-     * @param float $amount
-     * @return \Illuminate\Http\JsonResponse
-     */
     private function verifyCoinPurchase(Request $request, User $user, int $coins, float $amount)
     {
         try {
-            // 🔥 FIX: Use config() instead of env()
-            $api = new Api(
-                config('services.razorpay.key'),
-                config('services.razorpay.secret')
-            );
-
-            // Verify signature
+            // 🔥 Use the service
             $attributes = [
                 'razorpay_order_id' => $request->razorpay_order_id,
                 'razorpay_payment_id' => $request->razorpay_payment_id,
                 'razorpay_signature' => $request->razorpay_signature,
             ];
 
-            $api->utility->verifyPaymentSignature($attributes);
+            $this->razorpayService->verifyPaymentSignature($attributes);
 
             // Fetch payment details
-            $payment = $api->payment->fetch($request->razorpay_payment_id);
+            $payment = $this->razorpayService->fetchPayment($request->razorpay_payment_id);
 
             DB::beginTransaction();
             try {
@@ -319,7 +275,7 @@ class CoinsController extends Controller
                 ]);
 
                 // Create payment transaction record
-                $paymentTransaction = PaymentTransaction::create([
+                PaymentTransaction::create([
                     'user_id' => $user->id,
                     'payment_method_id' => null,
                     'order_id' => null,
@@ -340,7 +296,7 @@ class CoinsController extends Controller
                     'processed_at' => now(),
                 ]);
 
-                // Delete pending transaction if exists
+                // Delete pending transaction
                 CoinTransaction::where('user_id', $user->id)
                     ->where('type', 'coin_purchase_pending')
                     ->whereDate('created_at', today())
