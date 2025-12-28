@@ -41,6 +41,8 @@ class PdfBook extends Model
         'google_drive_shareable_link'
     ];
 
+    protected $appends = ['cover_image_url'];
+
     public function seller()
     {
         return $this->belongsTo(User::class, 'seller_id');
@@ -67,6 +69,19 @@ class PdfBook extends Model
     public function scopeBySeller($query, $sellerId)
     {
         return $query->where('seller_id', $sellerId);
+    }
+
+    public function getCoverImageUrlAttribute()
+    {
+        if (!$this->cover_image) {
+            return null;
+        }
+
+        if (filter_var($this->cover_image, FILTER_VALIDATE_URL)) {
+            return $this->cover_image;
+        }
+
+        return url($this->cover_image);
     }
 
     // Helper Methods
