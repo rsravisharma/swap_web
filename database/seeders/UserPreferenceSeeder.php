@@ -5,7 +5,7 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use App\Models\UserPreference;
 use App\Models\User;
-use App\Models\SubscriptionPlan; 
+use App\Models\SubscriptionPlan;
 use Illuminate\Support\Facades\Hash;
 
 class UserPreferenceSeeder extends Seeder
@@ -20,15 +20,15 @@ class UserPreferenceSeeder extends Seeder
         if ($userCount === 0) {
             $this->command->info('No users found. Creating a test user first...');
 
-            $planId = SubscriptionPlan::first()?->id; 
+            $planId = SubscriptionPlan::first()?->id;
             $user = User::create([
-                'name' => 'Test User',
-                'email' => 'test@example.com',
+                'name' => 'The Digital Curator',
+                'email' => 'digital@curator.com', 
                 'password' => Hash::make('password123'),
                 'email_verified_at' => now(),
                 'coins' => 50,
                 'subscription_plan_id' => $planId,
-                'referral_code' => User::generateUniqueReferralCode() 
+                'referral_code' => User::generateUniqueReferralCode()
             ]);
         } else {
             $user = User::first();
@@ -48,7 +48,7 @@ class UserPreferenceSeeder extends Seeder
                 ],
             ],
             [
-                'user_id' => $user->id, // Use $user->id to be robust
+                'user_id' => $user->id,
                 'key' => 'privacy_settings',
                 'value' => [
                     'show_phone_number' => false,

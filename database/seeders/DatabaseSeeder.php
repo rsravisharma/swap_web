@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             PaymentMethodSeeder::class,
             LocationSeeder::class,
             SubscriptionPlanSeeder::class,
+            PdfBookSeeder::class,
         ]);
     }
 }

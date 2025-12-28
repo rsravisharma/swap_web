@@ -138,4 +138,14 @@ class Order extends Model
             self::STATUS_CANCELLED => 'Cancelled',
         ];
     }
+
+    public function book()
+    {
+        return $this->belongsTo(PdfBook::class, 'pdf_book_id');
+    }
+
+    public function bookPurchase()
+    {
+        return $this->hasOne(PdfBookPurchase::class);
+    }
 }

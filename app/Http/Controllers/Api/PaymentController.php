@@ -7,6 +7,8 @@ use App\Models\PaymentMethod;
 use App\Models\UserPaymentMethod;
 use App\Models\PaymentTransaction;
 use App\Models\Order;
+use App\Models\PdfBook;
+use App\Models\PdfBookPurchase;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -48,7 +50,7 @@ class PaymentController extends Controller
     public function createOrder(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'order_id' => 'required|integer|exists:orders,id', 
+            'order_id' => 'required|integer|exists:orders,id',
             'notes' => 'nullable|array'
         ]);
 
@@ -197,6 +199,25 @@ class PaymentController extends Controller
                 'processed_at' => now(),
             ]);
 
+            if ($order->order_type === 'pdf_book' && $order->pdf_book_id) {
+                $book = PdfBook::find($order->pdf_book_id);
+
+                if ($book) {
+                    $bookPurchase = PdfBookPurchase::create([
+                        'user_id' => $user->id,
+                        'seller_id' => $book->seller_id,
+                        'book_id' => $book->id,
+                        'order_id' => $order->id,
+                        'payment_transaction_id' => $transaction->id,
+                        'purchase_price' => $book->price,
+                        'download_token' => \Illuminate\Support\Str::random(64),
+                        'download_count' => 0,
+                        'max_downloads' => 5,
+                        'status' => 'active',
+                    ]);
+                }
+            }
+
             DB::commit();
 
             return response()->json([
@@ -204,7 +225,8 @@ class PaymentController extends Controller
                 'message' => 'Payment verified successfully',
                 'data' => [
                     'order' => $order,
-                    'transaction' => $transaction
+                    'transaction' => $transaction,
+                    'book_purchase' => $bookPurchase ?? null
                 ]
             ]);
         } catch (\Razorpay\Api\Errors\SignatureVerificationError $e) {

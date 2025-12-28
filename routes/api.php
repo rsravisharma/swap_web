@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\{
     CommunicationController,
     OfferController,
     PaymentController,
+    PdfBookController,
     SocialController,
     SafetyController,
     NotificationController,
@@ -147,6 +148,9 @@ Route::prefix('legal')->name('legal.')->group(function () {
     Route::get('terms-and-conditions', [LegalController::class, 'getTermsAndConditions'])->name('terms');
     Route::get('document/{documentType}', [LegalController::class, 'getLegalDocument'])->name('document');
 });
+
+Route::get('/pdf-books', [PdfBookController::class, 'index']);
+Route::get('/pdf-books/{id}', [PdfBookController::class, 'show']);
 
 // Debug Route (Remove in production)
 Route::get('debug-ably-token', function () {
@@ -570,15 +574,24 @@ Route::middleware('auth:sanctum')->group(function () {
     // PAYMENT MANAGEMENT [web:50][web:54]
     // ================================
 
-    Route::prefix('payment')->name('payment.')->group(function () {
-        Route::post('create-order', [PaymentController::class, 'createOrder'])->name('create-order');
-        Route::post('verify', [PaymentController::class, 'verifyPayment'])->name('verify');
-        Route::post('failed', [PaymentController::class, 'handlePaymentFailure'])->name('failed');
-        Route::get('history', [PaymentController::class, 'getPaymentHistory'])->name('history');
-        Route::get('methods', [PaymentController::class, 'getPaymentMethods'])->name('methods');
-        Route::get('{paymentId}', [PaymentController::class, 'getPaymentDetails'])->name('show');
-        Route::post('{paymentId}/refund', [PaymentController::class, 'refundPayment'])->name('refund');
+    Route::prefix('payment')->group(function () {
+        Route::get('/methods', [PaymentController::class, 'getPaymentMethods']);
+        Route::get('/history', [PaymentController::class, 'getPaymentHistory']);
+        Route::post('/create-order', [PaymentController::class, 'createOrder']);
+        Route::post('/verify', [PaymentController::class, 'verifyPayment']);
+        Route::post('/failed', [PaymentController::class, 'handlePaymentFailure']);
+        Route::get('/{paymentId}', [PaymentController::class, 'getPaymentDetails']);
+        Route::post('/{paymentId}/refund', [PaymentController::class, 'refundPayment']);
     });
+
+    // PDF Book routes
+    Route::prefix('pdf-books')->group(function () {
+        Route::get('/my-purchases', [PdfBookController::class, 'myPurchases']);
+        Route::get('/my-books', [PdfBookController::class, 'myBooks']);
+        Route::post('/deliver', [PdfBookController::class, 'deliverBook']);
+        Route::get('/download/{token}', [PdfBookController::class, 'downloadByToken']);
+    });
+
 
     // ================================
     // WISHLIST [web:54]

@@ -816,4 +816,19 @@ class User extends Authenticatable implements MustVerifyEmail
             ->where('status', 'active')
             ->where('expires_at', '>', now());
     }
+
+    public function pdfBooksForSale()
+    {
+        return $this->hasMany(PdfBook::class, 'seller_id');
+    }
+
+    public function pdfBookSales()
+    {
+        return $this->hasMany(PdfBookPurchase::class, 'seller_id');
+    }
+
+    public function purchasedPdfBooks()
+    {
+        return $this->hasMany(PdfBookPurchase::class, 'user_id');
+    }
 }

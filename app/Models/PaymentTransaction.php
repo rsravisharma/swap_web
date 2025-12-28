@@ -65,7 +65,12 @@ class PaymentTransaction extends Model
 
     public function isRefundable()
     {
-        return $this->status === 'completed' && 
-               ($this->refund_amount === null || $this->refund_amount < $this->amount);
+        return $this->status === 'completed' &&
+            ($this->refund_amount === null || $this->refund_amount < $this->amount);
+    }
+
+    public function bookPurchases()
+    {
+        return $this->hasMany(PdfBookPurchase::class);
     }
 }

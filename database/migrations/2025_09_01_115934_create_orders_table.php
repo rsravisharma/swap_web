@@ -10,6 +10,8 @@ return new class extends Migration
     {
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('book_id')->nullable()->constrained()->onDelete('set null');
+            $table->enum('order_type', ['coins','product', 'pdf_book'])->default('coins');
             $table->string('razorpay_order_id')->nullable()->unique();
             $table->string('razorpay_payment_id')->nullable();
             $table->string('razorpay_signature')->nullable();
@@ -34,6 +36,7 @@ return new class extends Migration
             $table->index(['user_id', 'created_at']);
             $table->index('razorpay_order_id');
             $table->index('razorpay_payment_id');
+            $table->index('order_type');
             $table->index('status');
         });
     }
