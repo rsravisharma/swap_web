@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 class PdfBook extends Model
 {
@@ -77,11 +78,13 @@ class PdfBook extends Model
             return null;
         }
 
+        // If it's already a full URL, return as is
         if (filter_var($this->cover_image, FILTER_VALIDATE_URL)) {
             return $this->cover_image;
         }
 
-        return url($this->cover_image);
+        // Generate full URL using Storage facade
+        return Storage::url($this->cover_image);
     }
 
     // Helper Methods
