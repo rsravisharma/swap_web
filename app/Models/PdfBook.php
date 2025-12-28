@@ -83,8 +83,19 @@ class PdfBook extends Model
             return $this->cover_image;
         }
 
-        // Generate full URL using Storage facade
-        return Storage::url($this->cover_image);
+        // Get the base URL
+        $appUrl = config('app.url') ?: request()->getSchemeAndHttpHost();
+        $appUrl = rtrim($appUrl, '/');
+
+        // Use Storage::url() but ensure it's absolute
+        $storageUrl = Storage::url($this->cover_image);
+
+        // If Storage::url() returned a relative path, make it absolute
+        if (strpos($storageUrl, 'http') !== 0) {
+            return $appUrl . $storageUrl;
+        }
+
+        return $storageUrl;
     }
 
     // Helper Methods
