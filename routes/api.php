@@ -585,11 +585,14 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // PDF Book routes
-    Route::prefix('pdf-books')->group(function () {
+     Route::prefix('pdf-books')->group(function () {
+        Route::get('/', [PdfBookController::class, 'index']); 
+        Route::post('/orders/create', [PdfBookController::class, 'createOrder']);
         Route::get('/my-purchases', [PdfBookController::class, 'myPurchases']);
         Route::get('/my-books', [PdfBookController::class, 'myBooks']);
         Route::post('/deliver', [PdfBookController::class, 'deliverBook']);
         Route::get('/download/{token}', [PdfBookController::class, 'downloadByToken']);
+        Route::get('/{id}', [PdfBookController::class, 'show']); 
     });
 
 

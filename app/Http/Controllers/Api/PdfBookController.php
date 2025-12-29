@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\PdfBook;
+use App\Models\Order;
 use App\Models\PdfBookPurchase;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -26,10 +27,10 @@ class PdfBookController extends Controller
             // Apply filters
             if ($request->filled('search')) {
                 $search = $request->search;
-                $query->where(function($q) use ($search) {
+                $query->where(function ($q) use ($search) {
                     $q->where('title', 'like', "%{$search}%")
-                      ->orWhere('author', 'like', "%{$search}%")
-                      ->orWhere('isbn', 'like', "%{$search}%");
+                        ->orWhere('author', 'like', "%{$search}%")
+                        ->orWhere('isbn', 'like', "%{$search}%");
                 });
             }
 
@@ -100,6 +101,104 @@ class PdfBookController extends Controller
                 'success' => false,
                 'message' => 'Book not found'
             ], 404);
+        }
+    }
+
+    public function createOrder(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'book_id' => 'required|integer|exists:pdf_books,id',
+            'amount' => 'required|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $user = Auth::user();
+            $bookId = $request->book_id;
+            $amount = $request->amount;
+
+            // Get the book
+            $book = PdfBook::findOrFail($bookId);
+
+            // Check if book is available
+            if (!$book->is_available) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This book is not available for purchase',
+                ], 400);
+            }
+
+            // Check if user already purchased this book
+            $existingPurchase = PdfBookPurchase::where('user_id', $user->id)
+                ->where('book_id', $bookId)
+                ->where('status', 'active')
+                ->exists();
+
+            if ($existingPurchase) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You have already purchased this book',
+                ], 400);
+            }
+
+            // Validate price matches
+            if (abs($book->price - $amount) > 0.01) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Price mismatch. Please refresh and try again.',
+                ], 400);
+            }
+
+            // Create order
+            $order = Order::create([
+                'user_id' => $user->id,
+                'book_id' => $bookId,
+                'order_type' => 'pdf_book',
+                'total_amount' => $amount,
+                'payment_status' => 'pending',
+                'status' => 'pending',
+                'delivery_address' => json_encode([]), 
+            ]);
+
+            Log::info('PDF book order created', [
+                'order_id' => $order->id,
+                'book_id' => $bookId,
+                'user_id' => $user->id,
+                'amount' => $amount,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order created successfully',
+                'data' => [
+                    'order_id' => $order->id,
+                    'amount' => $amount,
+                    'book' => [
+                        'id' => $book->id,
+                        'title' => $book->title,
+                        'author' => $book->author,
+                        'cover_image_url' => $book->cover_image_url ?? null,
+                    ],
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Failed to create PDF book order', [
+                'error' => $e->getMessage(),
+                'book_id' => $request->book_id,
+                'user_id' => Auth::id(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create order. Please try again.',
+            ], 500);
         }
     }
 
@@ -194,7 +293,7 @@ class PdfBookController extends Controller
 
         try {
             $user = Auth::user();
-            
+
             // Verify the purchase exists and belongs to user
             $purchase = PdfBookPurchase::where('user_id', $user->id)
                 ->where('book_id', $request->book_id)
@@ -212,10 +311,10 @@ class PdfBookController extends Controller
 
             // Check if user can download
             if (!$purchase->canDownload()) {
-                $reason = $purchase->download_count >= $purchase->max_downloads 
-                    ? 'Download limit reached' 
+                $reason = $purchase->download_count >= $purchase->max_downloads
+                    ? 'Download limit reached'
                     : 'Access expired or revoked';
-                
+
                 return response()->json([
                     'success' => false,
                     'message' => $reason
@@ -223,7 +322,7 @@ class PdfBookController extends Controller
             }
 
             $book = $purchase->book;
-            
+
             // Generate direct download link
             $downloadLink = $book->getDirectDownloadLink();
 
@@ -257,7 +356,7 @@ class PdfBookController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             $purchase = PdfBookPurchase::where('download_token', $token)
                 ->where('user_id', $user->id)
                 ->where('status', 'active')
@@ -280,7 +379,7 @@ class PdfBookController extends Controller
 
             $book = $purchase->book;
             $downloadLink = $book->getDirectDownloadLink();
-            
+
             $purchase->incrementDownloadCount();
 
             return response()->json([
