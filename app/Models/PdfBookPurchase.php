@@ -35,6 +35,13 @@ class PdfBookPurchase extends Model
         'access_expires_at' => 'datetime'
     ];
 
+    protected $appends = ['remaining_downloads'];
+
+    public function getRemainingDownloadsAttribute(): int
+    {
+        return max(0, $this->max_downloads - $this->download_count);
+    }
+
     protected static function boot()
     {
         parent::boot();
@@ -90,14 +97,21 @@ class PdfBookPurchase extends Model
         return true;
     }
 
-    public function incrementDownloadCount(): void
+    public function incrementDownloadCount(): bool
     {
-        $this->increment('download_count');
-        
+        $updates = ['last_downloaded_at' => now()];
+
+        // Set first download timestamp if not set
         if (is_null($this->first_downloaded_at)) {
-            $this->update(['first_downloaded_at' => now()]);
+            $updates['first_downloaded_at'] = now();
         }
-        
-        $this->update(['last_downloaded_at' => now()]);
+
+        // Increment download count
+        $this->increment('download_count', 1, $updates);
+
+        // Refresh the model to get updated values
+        $this->refresh();
+
+        return true;
     }
 }

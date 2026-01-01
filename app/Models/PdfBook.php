@@ -42,11 +42,24 @@ class PdfBook extends Model
         'google_drive_shareable_link'
     ];
 
-    protected $appends = ['cover_image_url'];
+    protected $appends = ['cover_image_url', 'formatted_file_size'];
 
     public function seller()
     {
         return $this->belongsTo(User::class, 'seller_id');
+    }
+
+    public function getFormattedFileSizeAttribute(): string
+    {
+        if (empty($this->file_size)) {
+            return 'Unknown';
+        }
+
+        $bytes = $this->file_size;
+        $units = ['B', 'KB', 'MB', 'GB'];
+        $power = $bytes > 0 ? floor(log($bytes, 1024)) : 0;
+
+        return number_format($bytes / pow(1024, $power), 2) . ' ' . $units[$power];
     }
 
 
@@ -101,12 +114,31 @@ class PdfBook extends Model
     // Helper Methods
     public function getDirectDownloadLink(): string
     {
-        return "https://drive.google.com/uc?export=download&id=" . $this->google_drive_file_id;
+        // If file_id is available, use it
+        if (!empty($this->google_drive_file_id)) {
+            return "https://drive.google.com/uc?export=download&id=" . $this->google_drive_file_id;
+        }
+
+        // Otherwise, try to extract from shareable link
+        if (!empty($this->google_drive_shareable_link)) {
+            if (preg_match('/\/file\/d\/([^\/]+)/', $this->google_drive_shareable_link, $matches)) {
+                return "https://drive.google.com/uc?export=download&id=" . $matches[1];
+            }
+        }
+
+        // Fallback to shareable link if available
+        return $this->google_drive_shareable_link ?? '';
     }
 
     public function getPreviewLink(): string
     {
-        return "https://drive.google.com/file/d/" . $this->google_drive_file_id . "/preview";
+        // If file_id is available, use it
+        if (!empty($this->google_drive_file_id)) {
+            return "https://drive.google.com/file/d/" . $this->google_drive_file_id . "/preview";
+        }
+
+        // Otherwise, return shareable link for preview
+        return $this->google_drive_shareable_link ?? '';
     }
 
     public function isPurchasedBy($userId): bool
