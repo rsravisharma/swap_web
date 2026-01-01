@@ -96,7 +96,10 @@ class PdfBookController extends Controller
                 ])
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to fetch PDF book details: ' . $e->getMessage());
+            Log::error('Failed to fetch PDF book details: ' . $e->getMessage(), [
+                'book_id' => $id,
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Book not found'
@@ -104,6 +107,10 @@ class PdfBookController extends Controller
         }
     }
 
+    /**
+     * Create order for PDF book purchase
+     * POST /api/pdf-books/orders/create
+     */
     public function createOrder(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -135,9 +142,9 @@ class PdfBookController extends Controller
                 ], 400);
             }
 
-            // Check if user already purchased this book
+            // 🔥 Check if user already purchased this book using pdf_book_id
             $existingPurchase = PdfBookPurchase::where('user_id', $user->id)
-                ->where('book_id', $bookId)
+                ->where('pdf_book_id', $bookId) // 🔥 Changed from book_id
                 ->where('status', 'active')
                 ->exists();
 
@@ -148,30 +155,39 @@ class PdfBookController extends Controller
                 ], 400);
             }
 
-            // Validate price matches
-            if (abs($book->price - $amount) > 0.01) {
+            // 🔥 Validate amount is within acceptable range (allows coins usage)
+            if ($amount < 0 || $amount > $book->price) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Price mismatch. Please refresh and try again.',
+                    'message' => 'Invalid payment amount.',
                 ], 400);
             }
 
-            // Create order
+            // Optional: Ensure minimum payment for Razorpay
+            if ($amount > 0 && $amount < 1.0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Minimum payment amount is ₹1',
+                ], 400);
+            }
+
+            // 🔥 Create order with pdf_book_id
             $order = Order::create([
                 'user_id' => $user->id,
-                'book_id' => $bookId,
-                'order_type' => 'pdf_book',
+                'pdf_book_id' => $bookId, // 🔥 Using pdf_book_id
+                'order_type' => 'pdf_book', // 🔥 Must set explicitly
                 'total_amount' => $amount,
                 'payment_status' => 'pending',
                 'status' => 'pending',
-                'delivery_address' => json_encode([]), 
+                'delivery_address' => json_encode([]),
             ]);
 
             Log::info('PDF book order created', [
                 'order_id' => $order->id,
-                'book_id' => $bookId,
+                'pdf_book_id' => $bookId, // 🔥 Using pdf_book_id
                 'user_id' => $user->id,
                 'amount' => $amount,
+                'order_type' => $order->order_type,
             ]);
 
             return response()->json([
@@ -180,6 +196,7 @@ class PdfBookController extends Controller
                 'data' => [
                     'order_id' => $order->id,
                     'amount' => $amount,
+                    'order_type' => $order->order_type,
                     'book' => [
                         'id' => $book->id,
                         'title' => $book->title,
@@ -191,6 +208,7 @@ class PdfBookController extends Controller
         } catch (\Exception $e) {
             Log::error('Failed to create PDF book order', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'book_id' => $request->book_id,
                 'user_id' => Auth::id(),
             ]);
@@ -211,8 +229,9 @@ class PdfBookController extends Controller
         try {
             $user = Auth::user();
 
+            // 🔥 Using pdfBook() relationship (updated in model)
             $query = PdfBookPurchase::where('user_id', $user->id)
-                ->with(['book', 'seller:id,name', 'order'])
+                ->with(['pdfBook', 'seller:id,name', 'order']) // 🔥 Changed from 'book' to 'pdfBook'
                 ->where('status', 'active');
 
             $limit = $request->input('limit', 20);
@@ -230,7 +249,10 @@ class PdfBookController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to fetch purchased books: ' . $e->getMessage());
+            Log::error('Failed to fetch purchased books: ' . $e->getMessage(), [
+                'user_id' => Auth::id(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch purchased books'
@@ -294,12 +316,12 @@ class PdfBookController extends Controller
         try {
             $user = Auth::user();
 
-            // Verify the purchase exists and belongs to user
+            // 🔥 Verify the purchase exists using pdf_book_id
             $purchase = PdfBookPurchase::where('user_id', $user->id)
-                ->where('book_id', $request->book_id)
+                ->where('pdf_book_id', $request->book_id) // 🔥 Changed from book_id
                 ->where('order_id', $request->order_id)
                 ->where('status', 'active')
-                ->with('book')
+                ->with('pdfBook') // 🔥 Changed from 'book' to 'pdfBook'
                 ->first();
 
             if (!$purchase) {
@@ -321,7 +343,7 @@ class PdfBookController extends Controller
                 ], 403);
             }
 
-            $book = $purchase->book;
+            $book = $purchase->pdfBook; // 🔥 Changed from ->book to ->pdfBook
 
             // Generate direct download link
             $downloadLink = $book->getDirectDownloadLink();
@@ -360,7 +382,7 @@ class PdfBookController extends Controller
             $purchase = PdfBookPurchase::where('download_token', $token)
                 ->where('user_id', $user->id)
                 ->where('status', 'active')
-                ->with('book')
+                ->with('pdfBook') // 🔥 Changed from 'book' to 'pdfBook'
                 ->first();
 
             if (!$purchase) {
@@ -377,7 +399,7 @@ class PdfBookController extends Controller
                 ], 403);
             }
 
-            $book = $purchase->book;
+            $book = $purchase->pdfBook; // 🔥 Changed from ->book to ->pdfBook
             $downloadLink = $book->getDirectDownloadLink();
 
             $purchase->incrementDownloadCount();
