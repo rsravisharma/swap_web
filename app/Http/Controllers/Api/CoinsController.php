@@ -364,7 +364,7 @@ class CoinsController extends Controller
             'coins' => 'required|integer|min:1',
             'reason' => 'required|string|in:item_listing,promotion,feature_listing,boost_listing,gift,purchase,subscription,other',
             'description' => 'sometimes|string|max:500',
-            'item_id' => 'sometimes|integer|exists:items,id',
+            'item_id' => 'nullable|integer|exists:items,id',
         ]);
 
         if ($validator->fails()) {
