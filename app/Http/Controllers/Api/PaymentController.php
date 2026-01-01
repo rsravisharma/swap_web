@@ -57,105 +57,117 @@ class PaymentController extends Controller
      */
     public function createOrder(Request $request): JsonResponse
     {
+        // 🔥 This validates order_id, NOT book_id
         $validator = Validator::make($request->all(), [
-            'book_id' => 'required|integer|exists:pdf_books,id',
-            'amount' => 'required|numeric|min:0',
+            'order_id' => 'required|integer|exists:orders,id', // ✅ Correct
+            'amount' => 'nullable|numeric|min:1',
+            'notes' => 'nullable|array'
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
+                'errors' => $validator->errors()
             ], 422);
         }
 
         try {
             $user = Auth::user();
-            $bookId = $request->book_id;
-            $amount = $request->amount;
 
-            // Get the book
-            $book = PdfBook::findOrFail($bookId);
+            $order = Order::where('id', $request->order_id)
+                ->where('user_id', $user->id)
+                ->first();
 
-            // Check if book is available
-            if (!$book->is_available) {
+            if (!$order) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'This book is not available for purchase',
+                    'message' => 'Order not found'
+                ], 404);
+            }
+
+            if ($order->razorpay_order_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Payment already initiated for this order'
                 ], 400);
             }
 
-            // Check if user already purchased this book
-            $existingPurchase = PdfBookPurchase::where('user_id', $user->id)
-                ->where('book_id', $bookId)
-                ->where('status', 'active')
-                ->exists();
+            $paymentAmount = $request->input('amount') ?? $order->total_amount;
 
-            if ($existingPurchase) {
+            if ($paymentAmount > $order->total_amount) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'You have already purchased this book',
+                    'message' => 'Payment amount cannot exceed order total'
                 ], 400);
             }
 
-            if ($amount < 0 || $amount > $book->price) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invalid payment amount.',
-                ], 400);
-            }
-
-            if ($amount > 0 && $amount < 1.0) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Minimum payment amount is ₹1',
-                ], 400);
-            }
-
-            $order = Order::create([
-                'user_id' => $user->id,
-                'pdf_book_id' => $bookId,
-                'order_type' => 'pdf_book',
-                'total_amount' => $amount,
-                'payment_status' => 'pending',
-                'status' => 'pending',
-                'delivery_address' => json_encode([]),
+            Log::info('Creating Razorpay order', [
+                'order_id' => $order->id,
+                'order_type' => $order->order_type,
+                'original_amount' => $order->total_amount,
+                'payment_amount' => $paymentAmount,
+                'notes' => $request->notes
             ]);
 
-            Log::info('PDF book order created', [
-                'order_id' => $order->id,
-                'book_id' => $bookId,
-                'user_id' => $user->id,
-                'amount' => $amount,
-                'order_type' => $order->order_type,
+            $amountInPaise = (int) ($paymentAmount * 100);
+
+            $orderData = [
+                'amount' => $amountInPaise,
+                'currency' => 'INR',
+                'receipt' => 'order_' . $order->id . '_' . time(),
+                'notes' => array_merge([
+                    'order_id' => $order->id,
+                    'user_id' => $user->id,
+                    'order_type' => $order->order_type,
+                    'original_amount' => $order->total_amount,
+                    'payment_amount' => $paymentAmount,
+                ], $request->notes ?? [])
+            ];
+
+            $razorpayOrder = $this->razorpayService->createOrder($orderData);
+
+            $order->update([
+                'razorpay_order_id' => $razorpayOrder['id'],
+                'payment_status' => 'pending'
+            ]);
+
+            Log::info('Razorpay order created successfully', [
+                'razorpay_order_id' => $razorpayOrder['id'],
+                'amount_in_paise' => $amountInPaise,
+                'order_type' => $order->order_type
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Order created successfully',
                 'data' => [
-                    'order_id' => $order->id,
-                    'amount' => $amount,
-                    'order_type' => $order->order_type,
-                    'book' => [
-                        'id' => $book->id,
-                        'title' => $book->title,
-                        'author' => $book->author,
-                        'cover_image_url' => $book->cover_image_url ?? null,
-                    ],
-                ],
-            ], 200);
-        } catch (\Exception $e) {
-            Log::error('Failed to create PDF book order', [
-                'error' => $e->getMessage(),
-                'book_id' => $request->book_id,
-                'user_id' => Auth::id(),
+                    'order_id' => $razorpayOrder['id'],
+                    'amount' => $razorpayOrder['amount'],
+                    'currency' => $razorpayOrder['currency'],
+                    'key_id' => config('services.razorpay.key'),
+                    'app_order_id' => $order->id
+                ]
+            ]);
+        } catch (\Razorpay\Api\Errors\Error $e) {
+            Log::error('Razorpay API Error', [
+                'order_id' => $request->order_id,
+                'error_class' => get_class($e),
+                'error_message' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to create order. Please try again.',
+                'message' => 'Payment gateway error: ' . $e->getMessage()
+            ], 500);
+        } catch (\Exception $e) {
+            Log::error('Razorpay order creation failed', [
+                'order_id' => $request->order_id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create payment order'
             ], 500);
         }
     }
