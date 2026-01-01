@@ -729,6 +729,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('transactions', [CoinsController::class, 'getTransactionHistory'])->name('transactions');
         Route::post('purchase', [CoinsController::class, 'purchaseCoins'])->name('purchase');
         Route::post('deduct', [CoinsController::class, 'deductCoins'])->name('deduct');
+        Route::post('add', [CoinsController::class, 'addCoins'])->name('add');
 
         // Admin only - Award bonus coins
         Route::post('award-bonus', [CoinsController::class, 'awardBonus'])

@@ -620,6 +620,91 @@ class CoinsController extends Controller
         }
     }
 
+    public function addCoins(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'coins' => 'required|integer|min:1',
+            'type' => 'required|string|in:refund,compensation,bonus,gift_received,other',
+            'description' => 'sometimes|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $user = Auth::user();
+            $coins = $request->input('coins');
+            $type = $request->input('type');
+            $description = $request->input('description', '');
+
+            DB::beginTransaction();
+            try {
+                // Add coins
+                $user->addCoins($coins, $type);
+
+                // Record transaction
+                $transaction = CoinTransaction::create([
+                    'user_id' => $user->id,
+                    'amount' => $coins, // Positive amount
+                    'type' => $type,
+                    'description' => $description ?: $this->getAddCoinsDescription($type, $coins),
+                    'balance_after' => $user->coins,
+                ]);
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Coins added successfully',
+                    'data' => [
+                        'coins_added' => $coins,
+                        'new_balance' => $user->coins,
+                        'transaction' => [
+                            'id' => $transaction->id,
+                            'type' => $transaction->type_label ?? $transaction->type,
+                            'description' => $transaction->description,
+                            'created_at' => $transaction->created_at,
+                        ],
+                    ],
+                ], 200);
+            } catch (Exception $e) {
+                DB::rollBack();
+                throw $e;
+            }
+        } catch (Exception $e) {
+            Log::error('Add coins failed', [
+                'user_id' => Auth::id(),
+                'coins' => $request->input('coins'),
+                'type' => $request->input('type'),
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to add coins. Please try again.',
+            ], 500);
+        }
+    }
+
+    /**
+     * Get add coins description
+     */
+    private function getAddCoinsDescription(string $type, int $coins): string
+    {
+        return match ($type) {
+            'refund' => "Refund: {$coins} coins",
+            'compensation' => "Compensation: {$coins} coins",
+            'bonus' => "Bonus: {$coins} coins",
+            'gift_received' => "Gift received: {$coins} coins",
+            default => "Added {$coins} coins",
+        };
+    }
+
     /**
      * Get deduction description based on reason
      * 
