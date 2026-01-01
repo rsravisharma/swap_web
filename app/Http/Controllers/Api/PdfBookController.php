@@ -229,9 +229,8 @@ class PdfBookController extends Controller
         try {
             $user = Auth::user();
 
-            // 🔥 Using pdfBook() relationship (updated in model)
             $query = PdfBookPurchase::where('user_id', $user->id)
-                ->with(['pdfBook', 'seller:id,name', 'order']) // 🔥 Changed from 'book' to 'pdfBook'
+                ->with(['pdfBook', 'seller:id,name', 'order']) 
                 ->where('status', 'active');
 
             $limit = $request->input('limit', 20);
