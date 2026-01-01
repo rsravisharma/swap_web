@@ -196,7 +196,7 @@ class PaymentController extends Controller
                 'razorpay_signature' => $request->razorpay_signature
             ];
 
-            // 🔥 Use RazorpayService instead of new Api()
+            // Verify payment signature
             $this->razorpayService->verifyPaymentSignature($attributes);
 
             DB::beginTransaction();
@@ -210,7 +210,7 @@ class PaymentController extends Controller
                 throw new \Exception('Order not found');
             }
 
-            // 🔥 Fetch payment details using service
+            // Fetch payment details
             $payment = $this->razorpayService->fetchPayment($request->razorpay_payment_id);
 
             // Update order
@@ -252,6 +252,7 @@ class PaymentController extends Controller
                 'condition_met' => ($order->order_type === 'pdf_book' && $order->pdf_book_id)
             ]);
 
+            // Create PDF book purchase if applicable
             if ($order->order_type === 'pdf_book' && $order->pdf_book_id) {
                 Log::info('Attempting to find book', ['pdf_book_id' => $order->pdf_book_id]);
 
@@ -259,7 +260,7 @@ class PaymentController extends Controller
 
                 if ($book) {
                     Log::info('Book found, creating purchase', [
-                        'book_id' => $book->id,
+                        'pdf_book_id' => $book->id,
                         'seller_id' => $book->seller_id,
                         'user_id' => $user->id,
                         'order_id' => $order->id,
@@ -271,7 +272,7 @@ class PaymentController extends Controller
                         $bookPurchase = PdfBookPurchase::create([
                             'user_id' => $user->id,
                             'seller_id' => $book->seller_id,
-                            'book_id' => $book->id,
+                            'pdf_book_id' => $book->id, 
                             'order_id' => $order->id,
                             'payment_transaction_id' => $transaction->id,
                             'purchase_price' => $book->price,
@@ -282,8 +283,9 @@ class PaymentController extends Controller
                         ]);
 
                         Log::info('Book purchase created successfully', [
-                            'purchase_id' => $bookPurchase->id ?? 'NULL',
-                            'book_purchase' => $bookPurchase ? $bookPurchase->toArray() : null
+                            'purchase_id' => $bookPurchase->id,
+                            'pdf_book_id' => $bookPurchase->pdf_book_id,
+                            'download_token' => $bookPurchase->download_token
                         ]);
                     } catch (\Exception $purchaseError) {
                         Log::error('Failed to create book purchase', [
@@ -321,7 +323,6 @@ class PaymentController extends Controller
                 'error' => $e->getMessage()
             ]);
 
-            // Mark as failed
             if (isset($order)) {
                 $order->update(['payment_status' => 'failed']);
             }
@@ -341,7 +342,8 @@ class PaymentController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Payment verification failed'
+                'message' => 'Payment verification failed',
+                'error' => config('app.debug') ? $e->getMessage() : null 
             ], 500);
         }
     }
