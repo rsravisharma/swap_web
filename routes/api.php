@@ -149,9 +149,6 @@ Route::prefix('legal')->name('legal.')->group(function () {
     Route::get('document/{documentType}', [LegalController::class, 'getLegalDocument'])->name('document');
 });
 
-Route::get('/pdf-books', [PdfBookController::class, 'index']);
-Route::get('/pdf-books/{id}', [PdfBookController::class, 'show']);
-
 // Debug Route (Remove in production)
 Route::get('debug-ably-token', function () {
     try {
