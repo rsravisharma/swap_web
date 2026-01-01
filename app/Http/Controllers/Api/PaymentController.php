@@ -51,6 +51,7 @@ class PaymentController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'order_id' => 'required|integer|exists:orders,id',
+            'amount' => 'nullable|numeric|min:1', // 🔥 NEW: Optional custom amount
             'notes' => 'nullable|array'
         ]);
 
@@ -84,10 +85,28 @@ class PaymentController extends Controller
                 ], 400);
             }
 
+            // 🔥 Use custom amount if provided, otherwise use order total
+            $paymentAmount = $request->input('amount') ?? $order->total_amount;
+
+            // 🔥 Validate that custom amount doesn't exceed order total
+            if ($paymentAmount > $order->total_amount) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Payment amount cannot exceed order total'
+                ], 400);
+            }
+
+            Log::info('Creating Razorpay order', [
+                'order_id' => $order->id,
+                'original_amount' => $order->total_amount,
+                'payment_amount' => $paymentAmount,
+                'notes' => $request->notes
+            ]);
+
             $api = new Api(env('RAZORPAY_KEY_ID'), env('RAZORPAY_SECRET'));
 
             // Amount in paise
-            $amountInPaise = $order->total_amount * 100;
+            $amountInPaise = (int) ($paymentAmount * 100);
 
             $orderData = [
                 'amount' => $amountInPaise,
@@ -96,6 +115,8 @@ class PaymentController extends Controller
                 'notes' => array_merge([
                     'order_id' => $order->id,
                     'user_id' => $user->id,
+                    'original_amount' => $order->total_amount, // 🔥 Track original amount
+                    'payment_amount' => $paymentAmount, // 🔥 Track actual payment amount
                 ], $request->notes ?? [])
             ];
 
@@ -105,6 +126,11 @@ class PaymentController extends Controller
             $order->update([
                 'razorpay_order_id' => $razorpayOrder['id'],
                 'payment_status' => 'pending'
+            ]);
+
+            Log::info('Razorpay order created successfully', [
+                'razorpay_order_id' => $razorpayOrder['id'],
+                'amount_in_paise' => $amountInPaise
             ]);
 
             return response()->json([
@@ -117,14 +143,32 @@ class PaymentController extends Controller
                     'app_order_id' => $order->id // Your order ID for reference
                 ]
             ]);
+        } catch (\Razorpay\Api\Errors\Error $e) {
+            Log::error('Razorpay API Error', [
+                'order_id' => $request->order_id,
+                'error_class' => get_class($e),
+                'error_message' => $e->getMessage(),
+                'error_trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment gateway error: ' . $e->getMessage()
+            ], 500);
         } catch (\Exception $e) {
-            Log::error('Razorpay order creation failed: ' . $e->getMessage());
+            Log::error('Razorpay order creation failed', [
+                'order_id' => $request->order_id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create payment order'
             ], 500);
         }
     }
+
 
     public function verifyPayment(Request $request): JsonResponse
     {
