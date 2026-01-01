@@ -7,6 +7,7 @@ use App\Models\PaymentMethod;
 use App\Models\UserPaymentMethod;
 use App\Models\PaymentTransaction;
 use App\Models\Order;
+use App\Services\RazorpayService;
 use App\Models\PdfBook;
 use App\Models\PdfBookPurchase;
 use Illuminate\Http\Request;
@@ -19,6 +20,14 @@ use Razorpay\Api\Api;
 
 class PaymentController extends Controller
 {
+
+    protected $razorpayService;
+
+    public function __construct(RazorpayService $razorpayService)
+    {
+        $this->razorpayService = $razorpayService;
+    }
+
     /**
      * Get available payment methods
      * GET /payment/methods
@@ -51,7 +60,7 @@ class PaymentController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'order_id' => 'required|integer|exists:orders,id',
-            'amount' => 'nullable|numeric|min:1', // 🔥 NEW: Optional custom amount
+            'amount' => 'nullable|numeric|min:1',
             'notes' => 'nullable|array'
         ]);
 
@@ -65,7 +74,6 @@ class PaymentController extends Controller
         try {
             $user = Auth::user();
 
-            // Get the existing order
             $order = Order::where('id', $request->order_id)
                 ->where('user_id', $user->id)
                 ->first();
@@ -77,7 +85,6 @@ class PaymentController extends Controller
                 ], 404);
             }
 
-            // Check if already has Razorpay order
             if ($order->razorpay_order_id) {
                 return response()->json([
                     'success' => false,
@@ -85,10 +92,8 @@ class PaymentController extends Controller
                 ], 400);
             }
 
-            // 🔥 Use custom amount if provided, otherwise use order total
             $paymentAmount = $request->input('amount') ?? $order->total_amount;
 
-            // 🔥 Validate that custom amount doesn't exceed order total
             if ($paymentAmount > $order->total_amount) {
                 return response()->json([
                     'success' => false,
@@ -103,9 +108,6 @@ class PaymentController extends Controller
                 'notes' => $request->notes
             ]);
 
-            $api = new Api(env('RAZORPAY_KEY_ID'), env('RAZORPAY_SECRET'));
-
-            // Amount in paise
             $amountInPaise = (int) ($paymentAmount * 100);
 
             $orderData = [
@@ -115,14 +117,14 @@ class PaymentController extends Controller
                 'notes' => array_merge([
                     'order_id' => $order->id,
                     'user_id' => $user->id,
-                    'original_amount' => $order->total_amount, // 🔥 Track original amount
-                    'payment_amount' => $paymentAmount, // 🔥 Track actual payment amount
+                    'original_amount' => $order->total_amount,
+                    'payment_amount' => $paymentAmount,
                 ], $request->notes ?? [])
             ];
 
-            $razorpayOrder = $api->order->create($orderData);
+            // 🔥 Use the service instead of direct API instantiation
+            $razorpayOrder = $this->razorpayService->createOrder($orderData);
 
-            // Update the order with Razorpay order ID
             $order->update([
                 'razorpay_order_id' => $razorpayOrder['id'],
                 'payment_status' => 'pending'
@@ -136,11 +138,11 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'order_id' => $razorpayOrder['id'], // Razorpay order ID for checkout
+                    'order_id' => $razorpayOrder['id'],
                     'amount' => $razorpayOrder['amount'],
                     'currency' => $razorpayOrder['currency'],
-                    'key_id' => env('RAZORPAY_KEY_ID'),
-                    'app_order_id' => $order->id // Your order ID for reference
+                    'key_id' => config('services.razorpay.key'), // 🔥 Use config
+                    'app_order_id' => $order->id
                 ]
             ]);
         } catch (\Razorpay\Api\Errors\Error $e) {
@@ -148,7 +150,6 @@ class PaymentController extends Controller
                 'order_id' => $request->order_id,
                 'error_class' => get_class($e),
                 'error_message' => $e->getMessage(),
-                'error_trace' => $e->getTraceAsString()
             ]);
 
             return response()->json([
