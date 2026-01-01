@@ -11,18 +11,20 @@ class Order extends Model
 
     protected $fillable = [
         'user_id',
+        'pdf_book_id',
+        'order_type',
+        'razorpay_order_id',
+        'razorpay_payment_id',
+        'razorpay_signature',
         'payment_method_id',
         'delivery_option_id',
         'delivery_address',
         'notes',
         'status',
         'payment_status',
-        'total_amount',
-        'razorpay_order_id',
-        'razorpay_payment_id',
-        'razorpay_signature',
         'paid_at',
-        'cancelled_at'
+        'total_amount',
+        'cancelled_at',
     ];
 
     protected $casts = [
@@ -31,6 +33,11 @@ class Order extends Model
         'paid_at' => 'datetime',
         'cancelled_at' => 'datetime'
     ];
+
+    public function pdfBook()
+    {
+        return $this->belongsTo(PdfBook::class, 'pdf_book_id');
+    }
 
     public function user()
     {
