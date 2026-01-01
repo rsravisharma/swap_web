@@ -363,8 +363,8 @@ class CoinsController extends Controller
         $validator = Validator::make($request->all(), [
             'coins' => 'required|integer|min:1',
             'reason' => 'required|string|in:item_listing,promotion,feature_listing,boost_listing,gift,purchase,subscription,other',
-            'description' => 'sometimes|string|max:500',
-            'item_id' => 'nullable|integer|exists:items,id',
+            'description' => 'nullable|string|max:500', // 🔥 Changed to nullable
+            'item_id' => 'nullable|integer|exists:items,id', // 🔥 Changed to nullable
         ]);
 
         if ($validator->fails()) {
@@ -380,7 +380,7 @@ class CoinsController extends Controller
             $coins = $request->input('coins');
             $reason = $request->input('reason');
             $description = $request->input('description', '');
-            $itemId = $request->input('item_id');
+            $itemId = $request->input('item_id'); // Can be null
 
             // Check if user has enough coins
             if (!$user->canAfford($coins)) {
@@ -414,7 +414,7 @@ class CoinsController extends Controller
                     'amount' => -$coins,
                     'type' => $reason,
                     'description' => $description ?: $this->getDeductionDescription($reason, $coins),
-                    'item_id' => $itemId,
+                    'item_id' => $itemId, // 🔥 Can be null - no validation error
                     'balance_after' => $user->coins,
                 ]);
 
