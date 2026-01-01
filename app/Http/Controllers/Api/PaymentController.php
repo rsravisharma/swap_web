@@ -16,7 +16,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Razorpay\Api\Api;
 
 class PaymentController extends Controller
 {
@@ -188,7 +187,6 @@ class PaymentController extends Controller
 
         try {
             $user = Auth::user();
-            $api = new Api(env('RAZORPAY_KEY_ID'), env('RAZORPAY_SECRET'));
 
             $attributes = [
                 'razorpay_order_id' => $request->razorpay_order_id,
@@ -196,8 +194,8 @@ class PaymentController extends Controller
                 'razorpay_signature' => $request->razorpay_signature
             ];
 
-            // Verify signature
-            $api->utility->verifyPaymentSignature($attributes);
+            // 🔥 Use RazorpayService instead of new Api()
+            $this->razorpayService->verifyPaymentSignature($attributes);
 
             DB::beginTransaction();
 
@@ -210,8 +208,8 @@ class PaymentController extends Controller
                 throw new \Exception('Order not found');
             }
 
-            // Fetch payment details from Razorpay
-            $payment = $api->payment->fetch($request->razorpay_payment_id);
+            // 🔥 Fetch payment details using service
+            $payment = $this->razorpayService->fetchPayment($request->razorpay_payment_id);
 
             // Update order
             $order->update([
@@ -225,7 +223,7 @@ class PaymentController extends Controller
             // Create payment transaction record
             $transaction = PaymentTransaction::create([
                 'user_id' => $user->id,
-                'payment_method_id' => null, // Razorpay handles this
+                'payment_method_id' => null,
                 'order_id' => $order->id,
                 'amount' => $order->total_amount,
                 'currency' => $payment['currency'] ?? 'INR',
@@ -243,6 +241,8 @@ class PaymentController extends Controller
                 'description' => 'Payment for Order #' . $order->id,
                 'processed_at' => now(),
             ]);
+
+            $bookPurchase = null;
 
             if ($order->order_type === 'pdf_book' && $order->pdf_book_id) {
                 $book = PdfBook::find($order->pdf_book_id);
@@ -271,12 +271,16 @@ class PaymentController extends Controller
                 'data' => [
                     'order' => $order,
                     'transaction' => $transaction,
-                    'book_purchase' => $bookPurchase ?? null
+                    'book_purchase' => $bookPurchase
                 ]
             ]);
         } catch (\Razorpay\Api\Errors\SignatureVerificationError $e) {
             DB::rollback();
-            Log::error('Signature verification failed: ' . $e->getMessage());
+            Log::error('Signature verification failed', [
+                'order_id' => $request->razorpay_order_id,
+                'payment_id' => $request->razorpay_payment_id,
+                'error' => $e->getMessage()
+            ]);
 
             // Mark as failed
             if (isset($order)) {
@@ -289,7 +293,13 @@ class PaymentController extends Controller
             ], 400);
         } catch (\Exception $e) {
             DB::rollback();
-            Log::error('Payment verification error: ' . $e->getMessage());
+            Log::error('Payment verification error', [
+                'order_id' => $request->razorpay_order_id ?? null,
+                'payment_id' => $request->razorpay_payment_id ?? null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Payment verification failed'
@@ -513,21 +523,26 @@ class PaymentController extends Controller
     private function processRefundWithGateway(PaymentTransaction $transaction, float $amount): array
     {
         try {
-            $api = new Api(env('RAZORPAY_KEY_ID'), env('RAZORPAY_SECRET'));
+            $amountInPaise = (int) ($amount * 100);
 
-            // Amount in paise
-            $amountInPaise = $amount * 100;
-
-            $refund = $api->payment->fetch($transaction->gateway_transaction_id)
-                ->refund(['amount' => $amountInPaise]);
+            $refund = $this->razorpayService->refundPayment(
+                $transaction->gateway_transaction_id,
+                $amountInPaise
+            );
 
             return [
                 'success' => true,
-                'refund_id' => $refund->id,
-                'response' => json_encode($refund->toArray())
+                'refund_id' => $refund['id'],
+                'response' => json_encode($refund)
             ];
         } catch (\Exception $e) {
-            Log::error('Razorpay refund failed: ' . $e->getMessage());
+            Log::error('Razorpay refund failed', [
+                'transaction_id' => $transaction->id,
+                'payment_id' => $transaction->gateway_transaction_id,
+                'amount' => $amount,
+                'error' => $e->getMessage()
+            ]);
+
             return [
                 'success' => false,
                 'message' => $e->getMessage()
