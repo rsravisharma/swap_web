@@ -247,23 +247,60 @@ class PaymentController extends Controller
 
             $bookPurchase = null;
 
+            Log::info('Checking if should create book purchase', [
+                'order_type' => $order->order_type,
+                'pdf_book_id' => $order->pdf_book_id,
+                'condition_met' => ($order->order_type === 'pdf_book' && $order->pdf_book_id)
+            ]);
+
             if ($order->order_type === 'pdf_book' && $order->pdf_book_id) {
+                Log::info('Attempting to find book', ['pdf_book_id' => $order->pdf_book_id]);
+
                 $book = PdfBook::find($order->pdf_book_id);
 
                 if ($book) {
-                    $bookPurchase = PdfBookPurchase::create([
-                        'user_id' => $user->id,
-                        'seller_id' => $book->seller_id,
+                    Log::info('Book found, creating purchase', [
                         'book_id' => $book->id,
+                        'seller_id' => $book->seller_id,
+                        'user_id' => $user->id,
                         'order_id' => $order->id,
-                        'payment_transaction_id' => $transaction->id,
-                        'purchase_price' => $book->price,
-                        'download_token' => \Illuminate\Support\Str::random(64),
-                        'download_count' => 0,
-                        'max_downloads' => 5,
-                        'status' => 'active',
+                        'transaction_id' => $transaction->id,
+                        'price' => $book->price
                     ]);
+
+                    try {
+                        $bookPurchase = PdfBookPurchase::create([
+                            'user_id' => $user->id,
+                            'seller_id' => $book->seller_id,
+                            'book_id' => $book->id,
+                            'order_id' => $order->id,
+                            'payment_transaction_id' => $transaction->id,
+                            'purchase_price' => $book->price,
+                            'download_token' => \Illuminate\Support\Str::random(64),
+                            'download_count' => 0,
+                            'max_downloads' => 5,
+                            'status' => 'active',
+                        ]);
+
+                        Log::info('Book purchase created successfully', [
+                            'purchase_id' => $bookPurchase->id ?? 'NULL',
+                            'book_purchase' => $bookPurchase ? $bookPurchase->toArray() : null
+                        ]);
+                    } catch (\Exception $purchaseError) {
+                        Log::error('Failed to create book purchase', [
+                            'error' => $purchaseError->getMessage(),
+                            'trace' => $purchaseError->getTraceAsString()
+                        ]);
+                        throw $purchaseError; // Re-throw to rollback transaction
+                    }
+                } else {
+                    Log::error('Book not found', ['pdf_book_id' => $order->pdf_book_id]);
                 }
+            } else {
+                Log::info('Not creating book purchase - conditions not met', [
+                    'order_type' => $order->order_type,
+                    'pdf_book_id' => $order->pdf_book_id
+                ]);
             }
 
             DB::commit();
