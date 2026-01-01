@@ -38,40 +38,26 @@ class PdfBook extends Model
     ];
 
     protected $hidden = [
-        'google_drive_file_id', // Don't expose in API responses
+        'google_drive_file_id',
         'google_drive_shareable_link'
     ];
 
     protected $appends = ['cover_image_url', 'formatted_file_size'];
 
+    // Relationships
     public function seller()
     {
         return $this->belongsTo(User::class, 'seller_id');
     }
 
-    public function getFormattedFileSizeAttribute(): string
-    {
-        if (empty($this->file_size)) {
-            return 'Unknown';
-        }
-
-        $bytes = $this->file_size;
-        $units = ['B', 'KB', 'MB', 'GB'];
-        $power = $bytes > 0 ? floor(log($bytes, 1024)) : 0;
-
-        return number_format($bytes / pow(1024, $power), 2) . ' ' . $units[$power];
-    }
-
-
-    // Relationships
     public function purchases()
     {
-        return $this->hasMany(PdfBookPurchase::class, 'book_id');
+        return $this->hasMany(PdfBookPurchase::class, 'pdf_book_id'); 
     }
 
     public function orders()
     {
-        return $this->hasMany(Order::class, 'pdf_book_id');
+        return $this->hasMany(Order::class, 'pdf_book_id'); 
     }
 
     // Scopes
@@ -83,6 +69,20 @@ class PdfBook extends Model
     public function scopeBySeller($query, $sellerId)
     {
         return $query->where('seller_id', $sellerId);
+    }
+
+    // Accessor methods
+    public function getFormattedFileSizeAttribute(): string
+    {
+        if (empty($this->file_size)) {
+            return 'Unknown';
+        }
+
+        $bytes = $this->file_size;
+        $units = ['B', 'KB', 'MB', 'GB'];
+        $power = $bytes > 0 ? floor(log($bytes, 1024)) : 0;
+
+        return number_format($bytes / pow(1024, $power), 2) . ' ' . $units[$power];
     }
 
     public function getCoverImageUrlAttribute()
@@ -114,30 +114,25 @@ class PdfBook extends Model
     // Helper Methods
     public function getDirectDownloadLink(): string
     {
-        // If file_id is available, use it
         if (!empty($this->google_drive_file_id)) {
             return "https://drive.google.com/uc?export=download&id=" . $this->google_drive_file_id;
         }
 
-        // Otherwise, try to extract from shareable link
         if (!empty($this->google_drive_shareable_link)) {
             if (preg_match('/\/file\/d\/([^\/]+)/', $this->google_drive_shareable_link, $matches)) {
                 return "https://drive.google.com/uc?export=download&id=" . $matches[1];
             }
         }
 
-        // Fallback to shareable link if available
         return $this->google_drive_shareable_link ?? '';
     }
 
     public function getPreviewLink(): string
     {
-        // If file_id is available, use it
         if (!empty($this->google_drive_file_id)) {
             return "https://drive.google.com/file/d/" . $this->google_drive_file_id . "/preview";
         }
 
-        // Otherwise, return shareable link for preview
         return $this->google_drive_shareable_link ?? '';
     }
 

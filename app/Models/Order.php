@@ -11,7 +11,7 @@ class Order extends Model
 
     protected $fillable = [
         'user_id',
-        'pdf_book_id',
+        'pdf_book_id', 
         'order_type',
         'razorpay_order_id',
         'razorpay_payment_id',
@@ -34,9 +34,10 @@ class Order extends Model
         'cancelled_at' => 'datetime'
     ];
 
+    // Relationships
     public function pdfBook()
     {
-        return $this->belongsTo(PdfBook::class, 'pdf_book_id');
+        return $this->belongsTo(PdfBook::class, 'pdf_book_id'); 
     }
 
     public function user()
@@ -62,6 +63,11 @@ class Order extends Model
     public function trackingUpdates()
     {
         return $this->hasMany(OrderTracking::class);
+    }
+
+    public function bookPurchase()
+    {
+        return $this->hasOne(PdfBookPurchase::class);
     }
 
     // Scopes
@@ -144,15 +150,5 @@ class Order extends Model
             self::STATUS_DELIVERED => 'Delivered',
             self::STATUS_CANCELLED => 'Cancelled',
         ];
-    }
-
-    public function book()
-    {
-        return $this->belongsTo(PdfBook::class, 'pdf_book_id');
-    }
-
-    public function bookPurchase()
-    {
-        return $this->hasOne(PdfBookPurchase::class);
     }
 }

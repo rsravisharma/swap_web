@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
             $table->foreignId('seller_id')->constrained('users')->onDelete('cascade');
-            $table->foreignId('book_id')->constrained('pdf_books')->onDelete('cascade');
+            $table->foreignId('pdf_book_id')->constrained('pdf_books')->onDelete('cascade');
             $table->foreignId('order_id')->constrained('orders')->onDelete('cascade');
             $table->foreignId('payment_transaction_id')->nullable()->constrained('payment_transactions')->onDelete('set null');
             $table->decimal('purchase_price', 10, 2);
@@ -30,6 +30,7 @@ return new class extends Migration
             
             $table->index(['seller_id', 'status']); 
             $table->index(['user_id', 'status']);
+            $table->index('pdf_book_id');
             $table->index('download_token');
         });
     }

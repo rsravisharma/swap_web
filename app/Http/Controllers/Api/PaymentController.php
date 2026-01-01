@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\PaymentMethod;
-use App\Models\UserPaymentMethod;
 use App\Models\PaymentTransaction;
 use App\Models\Order;
 use App\Services\RazorpayService;

@@ -13,7 +13,7 @@ class PdfBookPurchase extends Model
     protected $fillable = [
         'user_id',
         'seller_id',
-        'book_id',
+        'pdf_book_id',
         'order_id',
         'payment_transaction_id',
         'purchase_price',
@@ -64,9 +64,9 @@ class PdfBookPurchase extends Model
         return $this->belongsTo(User::class, 'seller_id');
     }
 
-    public function book()
+    public function pdfBook() 
     {
-        return $this->belongsTo(PdfBook::class, 'book_id');
+        return $this->belongsTo(PdfBook::class, 'pdf_book_id');
     }
 
     public function order()
@@ -101,15 +101,11 @@ class PdfBookPurchase extends Model
     {
         $updates = ['last_downloaded_at' => now()];
 
-        // Set first download timestamp if not set
         if (is_null($this->first_downloaded_at)) {
             $updates['first_downloaded_at'] = now();
         }
 
-        // Increment download count
         $this->increment('download_count', 1, $updates);
-
-        // Refresh the model to get updated values
         $this->refresh();
 
         return true;
