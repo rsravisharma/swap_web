@@ -831,4 +831,44 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->hasMany(PdfBookPurchase::class, 'user_id');
     }
+
+    public function sessionLogs()
+    {
+        return $this->hasMany(UserSessionLog::class);
+    }
+
+    public function engagementMetrics()
+    {
+        return $this->hasMany(UserEngagementMetric::class);
+    }
+
+    public function violations()
+    {
+        return $this->hasMany(UserViolation::class);
+    }
+
+    public function reportedViolations()
+    {
+        return $this->hasMany(UserViolation::class, 'reported_by');
+    }
+
+    public function getCurrentSession()
+    {
+        return $this->sessionLogs()->active()->latest()->first();
+    }
+
+    public function getTodayEngagement()
+    {
+        return $this->engagementMetrics()
+            ->where('date', today())
+            ->first();
+    }
+
+    public function getAverageEngagementScore($days = 30)
+    {
+        return $this->engagementMetrics()
+            ->where('date', '>=', now()->subDays($days))
+            ->avg('engagement_score') ?? 0;
+    }
+
 }

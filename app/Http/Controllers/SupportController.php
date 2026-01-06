@@ -9,22 +9,9 @@ use Illuminate\Support\Facades\Log;
 
 class SupportController extends Controller
 {
-    public function termsAndConditions(): JsonResponse
+    public function termsAndConditions()
     {
-        try {
-            $user = Auth::user();
-
-            return response()->json([
-                'success' => true,
-                'data' => $user
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Failed to get user profile: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve user profile'
-            ], 500);
-        }
+        return view('frontend.legal_support.terms');
     }
 
     public function reportIssue(): JsonResponse
@@ -45,22 +32,9 @@ class SupportController extends Controller
         }
     }
 
-    public function faq(): JsonResponse
+    public function faq()
     {
-        try {
-            $user = Auth::user();
-
-            return response()->json([
-                'success' => true,
-                'data' => $user
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Failed to get user profile: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve user profile'
-            ], 500);
-        }
+        return view('frontend.faq.index');
     }
 
     public function contactUs(): JsonResponse

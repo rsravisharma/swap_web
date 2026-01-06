@@ -12,15 +12,17 @@ class UserActivityLog extends Model
     protected $fillable = [
         'user_id',
         'action',
+        'action_type',
         'description',
         'metadata',
         'ip_address',
         'user_agent',
-        'performed_at'
+        'performed_at',
+        'device_type',
     ];
 
     protected $casts = [
-        'metadata' => 'json',
+        'metadata' => 'array',
         'performed_at' => 'datetime',
     ];
 
@@ -31,15 +33,17 @@ class UserActivityLog extends Model
     }
 
     // Helper methods
-    public static function log($userId, $action, $description = null, $metadata = null)
+    public static function log($userId, $action, $actionType, $description = null, $metadata = null)
     {
         return static::create([
             'user_id' => $userId,
             'action' => $action,
+            'action_type' => $actionType,
             'description' => $description,
             'metadata' => $metadata,
             'ip_address' => request()->ip(),
             'user_agent' => request()->userAgent(),
+            'device_type' => request()->header('X-Device-Type'),
             'performed_at' => now(),
         ]);
     }

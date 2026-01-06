@@ -14,6 +14,7 @@ class PdfBook extends Model
     protected $fillable = [
         'title',
         'seller_id',
+        'uploaded_by_admin_id',
         'isbn',
         'description',
         'author',

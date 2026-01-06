@@ -13,6 +13,7 @@ return new class extends Migration
     {
          Schema::create('pdf_books', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('uploaded_by_admin_id')->nullable()->constrained('admins')->nullOnDelete();
             $table->string('title');
             $table->foreignId('seller_id')->constrained('users')->cascadeOnDelete();
             $table->string('isbn')->unique()->nullable();
@@ -32,6 +33,7 @@ return new class extends Migration
             $table->softDeletes();
 
             $table->index(['seller_id']);
+            $table->index('uploaded_by_admin_id');
             $table->index(['seller_id', 'is_available']);
             $table->index('is_available');
         });

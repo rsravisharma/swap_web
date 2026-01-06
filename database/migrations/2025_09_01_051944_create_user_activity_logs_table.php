@@ -15,14 +15,19 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->string('action'); // login, logout, profile_update, etc.
+            $table->string('action_type');
             $table->text('description')->nullable();
             $table->json('metadata')->nullable(); // Additional data
             $table->string('ip_address', 45)->nullable();
             $table->string('user_agent')->nullable();
+            $table->string('device_type')->nullable();
             $table->timestamp('performed_at');
             $table->timestamps();
             
             $table->index(['user_id', 'action']);
+            $table->index(['user_id', 'created_at']);
+            $table->index('action');
+            $table->index('action_type');
             $table->index('performed_at');
         });
     }
