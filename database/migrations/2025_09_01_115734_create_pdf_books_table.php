@@ -16,7 +16,7 @@ return new class extends Migration
             $table->foreignId('uploaded_by_admin_id')->nullable()->constrained('admins')->nullOnDelete();
             $table->string('title');
             $table->foreignId('seller_id')->constrained('users')->cascadeOnDelete();
-            $table->string('isbn')->unique()->nullable();
+            $table->string('isbn')->nullable();
             $table->text('description')->nullable();
             $table->string('author')->nullable();
             $table->string('publisher')->nullable();

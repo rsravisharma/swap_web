@@ -15,46 +15,45 @@ class PdfManagerController extends Controller
      * Show PDF upload form
      */
     public function index(Request $request)
-{
-    $admin = auth('admin')->user();
-    
-    $perPage = $request->get('per_page', 5);
-    
-    // Show only books uploaded by this admin (managers see only their uploads)
-    $query = PdfBook::with(['seller'])
-        ->withCount('purchases')
-        ->orderBy('created_at', 'desc');
+    {
+        $admin = auth('admin')->user();
+        
+        $perPage = $request->get('per_page', 20);
+        
+        // Show only books uploaded by this admin (managers see only their uploads)
+        $query = PdfBook::with(['seller'])
+            ->withCount('purchases')
+            ->orderBy('created_at', 'desc');
 
-    // If manager, show only their uploads
-    if ($admin->role === 'manager') {
-        $query->where('uploaded_by_admin_id', $admin->id);
+        // If manager, show only their uploads
+        if ($admin->role === 'manager') {
+            $query->where('uploaded_by_admin_id', $admin->id);
+        }
+        
+        $myBooks = $query->paginate($perPage)->withQueryString();
+
+        // Stats based on role
+        if ($admin->role === 'manager') {
+            $stats = [
+                'total_books' => PdfBook::where('uploaded_by_admin_id', $admin->id)->count(),
+                'total_sales' => PdfBook::where('uploaded_by_admin_id', $admin->id)
+                    ->withCount('purchases')
+                    ->get()
+                    ->sum('purchases_count'),
+                'active_books' => PdfBook::where('uploaded_by_admin_id', $admin->id)
+                    ->where('is_available', true)
+                    ->count(),
+            ];
+        } else {
+            $stats = [
+                'total_books' => PdfBook::count(),
+                'total_sales' => PdfBook::withCount('purchases')->get()->sum('purchases_count'),
+                'active_books' => PdfBook::where('is_available', true)->count(),
+            ];
+        }
+
+        return view('admin.pdf-manager.index', compact('myBooks', 'stats'));
     }
-    
-    $myBooks = $query->paginate($perPage)->withQueryString();
-
-    // Stats based on role
-    if ($admin->role === 'manager') {
-        $stats = [
-            'total_books' => PdfBook::where('uploaded_by_admin_id', $admin->id)->count(),
-            'total_sales' => PdfBook::where('uploaded_by_admin_id', $admin->id)
-                ->withCount('purchases')
-                ->get()
-                ->sum('purchases_count'),
-            'active_books' => PdfBook::where('uploaded_by_admin_id', $admin->id)
-                ->where('is_available', true)
-                ->count(),
-        ];
-    } else {
-        $stats = [
-            'total_books' => PdfBook::count(),
-            'total_sales' => PdfBook::withCount('purchases')->get()->sum('purchases_count'),
-            'active_books' => PdfBook::where('is_available', true)->count(),
-        ];
-    }
-
-    return view('admin.pdf-manager.index', compact('myBooks', 'stats'));
-}
-
 
     /**
      * Show upload form
@@ -78,7 +77,7 @@ class PdfManagerController extends Controller
             'user_id' => 'required|exists:users,id',
             'title' => 'required|string|max:255',
             'author' => 'nullable|string|max:255',
-            'isbn' => 'nullable|string|max:255|unique:pdf_books,isbn',
+            'isbn' => 'nullable|string|max:255|unique:pdf_books,isbn,NULL,id,deleted_at,NULL',
             'description' => 'nullable|string',
             'publisher' => 'nullable|string|max:255',
             'publication_year' => 'nullable|integer|min:1900|max:' . date('Y'),
@@ -105,6 +104,7 @@ class PdfManagerController extends Controller
 
         // Set seller to selected user
         $data['seller_id'] = $request->user_id;
+        $data['uploaded_by_admin_id'] = auth('admin')->id(); // ADD THIS LINE
         $data['is_available'] = true;
 
         // Handle cover image upload
@@ -140,7 +140,7 @@ class PdfManagerController extends Controller
         
         // Check if manager has permission to edit this book
         $admin = auth('admin')->user();
-        if ($admin->role !== 'super_admin' && $book->seller_id != $admin->id) {
+        if ($admin->role === 'manager' && $book->uploaded_by_admin_id != $admin->id) {
             abort(403, 'You do not have permission to edit this book.');
         }
 
@@ -160,7 +160,7 @@ class PdfManagerController extends Controller
 
         // Check permission
         $admin = auth('admin')->user();
-        if ($admin->role !== 'super_admin' && $book->seller_id != $admin->id) {
+        if ($admin->role === 'manager' && $book->uploaded_by_admin_id != $admin->id) {
             abort(403, 'You do not have permission to edit this book.');
         }
 
@@ -168,7 +168,7 @@ class PdfManagerController extends Controller
             'user_id' => 'required|exists:users,id',
             'title' => 'required|string|max:255',
             'author' => 'nullable|string|max:255',
-            'isbn' => 'nullable|string|max:255|unique:pdf_books,isbn,' . $id,
+            'isbn' => "nullable|string|max:255|unique:pdf_books,isbn,{$id},id,deleted_at,NULL",
             'description' => 'nullable|string',
             'publisher' => 'nullable|string|max:255',
             'publication_year' => 'nullable|integer|min:1900|max:' . date('Y'),
@@ -226,7 +226,7 @@ class PdfManagerController extends Controller
 
         // Check permission
         $admin = auth('admin')->user();
-        if ($admin->role !== 'super_admin' && $book->seller_id != $admin->id) {
+        if ($admin->role === 'manager' && $book->uploaded_by_admin_id != $admin->id) {
             abort(403, 'You do not have permission to delete this book.');
         }
 
@@ -274,6 +274,7 @@ class PdfManagerController extends Controller
             try {
                 PdfBook::create([
                     'seller_id' => $request->user_id,
+                    'uploaded_by_admin_id' => auth('admin')->id(), // ADD THIS LINE
                     'title' => $bookData['title'],
                     'author' => $bookData['author'] ?? null,
                     'price' => $bookData['price'],
