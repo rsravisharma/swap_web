@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Artisan;
 use App\Models\ItemImage;
 use App\Http\Controllers\{
     EmailVerificationController,
-    DeletionRequestController, 
+    DeletionRequestController,
     SupportController,
 };
 
@@ -17,6 +17,8 @@ use App\Http\Controllers\Web\{
     BlogController,
     NewsletterController,
     ContactController,
+    PdfBookController,
+    AuthController
 };
 
 use App\Http\Controllers\Admin\{
@@ -33,15 +35,15 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
     Route::get('/', function () {
         $admin = Auth::guard('admin')->user();
-    
+
         if ($admin->role === 'manager') {
             return redirect()->route('admin.pdf-manager.index');
         }
-    
+
         return redirect()->route('admin.dashboard');
     })->name('admin.home');
 
-    
+
     // Guest routes (not logged in)
     Route::middleware('guest:admin')->group(function () {
         Route::get('/login', [AdminAuthController::class, 'showLoginForm'])->name('login');
@@ -50,10 +52,11 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
     // Authenticated admin routes
     Route::middleware(['admin'])->group(function () {
-        
+
         // Logout (available to all admin roles)
         Route::post('/logout', [AdminAuthController::class, 'logout'])->name('logout');
 
+        Route::get('/categories/{parentId}/children', [PdfManagerController::class, 'getChildren'])->name('admin.categories.children');
         // PDF Manager Routes (accessible by manager and super_admin)
         Route::middleware(['role:manager,super_admin'])->prefix('pdf-manager')->name('pdf-manager.')->group(function () {
             Route::get('/', [PdfManagerController::class, 'index'])->name('index');
@@ -62,7 +65,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::get('/{id}/edit', [PdfManagerController::class, 'edit'])->name('edit');
             Route::put('/{id}', [PdfManagerController::class, 'update'])->name('update');
             Route::delete('/{id}', [PdfManagerController::class, 'destroy'])->name('destroy');
-            
+
             // Bulk upload
             Route::get('/bulk-upload', [PdfManagerController::class, 'bulkCreate'])->name('bulk-create');
             Route::post('/bulk-upload', [PdfManagerController::class, 'bulkStore'])->name('bulk-store');
@@ -70,10 +73,10 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
         // Super Admin Only Routes
         Route::middleware(['role:super_admin'])->group(function () {
-            
+
             // Dashboard
             Route::get('/dashboard', [AdminDashboardController::class, 'index'])->name('dashboard');
-            
+
             // Analytics routes
             Route::get('/analytics', [UserAnalyticsController::class, 'index'])->name('analytics.index');
             Route::get('/analytics/users', [UserAnalyticsController::class, 'userList'])->name('analytics.users');
@@ -96,12 +99,12 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::get('/pdf-books/{id}', [PdfBookAnalyticsController::class, 'bookDetails'])->name('pdf-books.details');
             Route::post('/pdf-books/{id}/availability', [PdfBookAnalyticsController::class, 'updateAvailability'])->name('pdf-books.update-availability');
             Route::delete('/pdf-books/{id}', [PdfBookAnalyticsController::class, 'destroy'])->name('pdf-books.destroy');
-            
+
             // Purchases
             Route::get('/pdf-books-purchases', [PdfBookAnalyticsController::class, 'purchasesList'])->name('pdf-books.purchases');
             Route::post('/pdf-purchases/{id}/revoke', [PdfBookAnalyticsController::class, 'revokePurchase'])->name('pdf-purchases.revoke');
             Route::post('/pdf-purchases/{id}/extend', [PdfBookAnalyticsController::class, 'extendPurchase'])->name('pdf-purchases.extend');
-            
+
             // Export
             Route::get('/pdf-books-export', [PdfBookAnalyticsController::class, 'exportBooks'])->name('pdf-books.export');
             Route::get('/pdf-purchases-export', [PdfBookAnalyticsController::class, 'exportPurchases'])->name('pdf-purchases.export');
@@ -109,6 +112,41 @@ Route::prefix('admin')->name('admin.')->group(function () {
     });
 });
 
+// User Authentication Routes
+Route::middleware('guest')->group(function () {
+
+    Route::get('/register', function () {
+        return view('auth.user-register');
+    })->name('user.register');
+
+    Route::post('/register', [AuthController::class, 'register'])->name('user.register.submit');
+
+    Route::get('/login', function () {
+        return view('auth.user-login');
+    })->name('user.login');
+
+    Route::post('/login', [AuthController::class, 'login'])->name('user.login.submit');
+});
+
+Route::middleware('auth')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout'])->name('user.logout');
+});
+
+
+
+Route::middleware('auth')->prefix('pdf-books')->name('pdf-books.')->group(function () {
+    Route::get('/my-library', [PdfBookController::class, 'myLibrary'])->name('my-library');
+    Route::get('/purchase/{purchase}/download', [PdfBookController::class, 'download'])->name('download');
+});
+
+Route::prefix('pdf-books')->name('pdf-books.')->group(function () {
+    Route::get('/', [PdfBookController::class, 'index'])->name('index');
+    Route::get('/category/{pdfCategory}', [PdfBookController::class, 'category'])->name('category');
+    Route::get('/categories', [PdfBookController::class, 'categories'])->name('categories');
+    Route::post('/{pdfBook}/initiate-payment', [PdfBookController::class, 'initiatePayment'])->name('initiate-payment');
+    Route::post('/payment/verify', [PdfBookController::class, 'verifyPayment'])->name('verify-payment');
+    Route::get('/{pdfBook}', [PdfBookController::class, 'show'])->name('show');
+});
 
 // Homepage
 Route::get('/', [HomeController::class, 'index'])->name('home');
@@ -170,14 +208,14 @@ Route::get('/deletion-status', function () {
 Route::post('/deletion-status', [DeletionRequestController::class, 'status'])->name('deletion.status.check');
 
 // Item images
-Route::get('/item-image/{id}', function($id) {
+Route::get('/item-image/{id}', function ($id) {
     $image = ItemImage::findOrFail($id);
     $path = storage_path('app/' . $image->image_path);
-    
+
     if (!file_exists($path)) {
         abort(404);
     }
-    
+
     return response()->file($path);
 })->name('item.image');
 

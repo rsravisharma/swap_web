@@ -114,6 +114,7 @@
                     <tr>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Book</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned To</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Original Price</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sales</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -156,6 +157,9 @@
                                     <p class="text-xs text-gray-500">{{ $book->seller->email }}</p>
                                 </div>
                             </div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="font-bold text-green-600">₹{{ number_format($book->original_price, 0) }}</span>
                         </td>
                         <td class="px-6 py-4">
                             <span class="font-bold text-green-600">₹{{ number_format($book->price, 0) }}</span>

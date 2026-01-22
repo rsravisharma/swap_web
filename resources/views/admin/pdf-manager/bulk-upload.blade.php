@@ -91,6 +91,20 @@
                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
 
+                        <!-- Original Price -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">
+                                Original Price (₹) <span class="text-red-500">*</span>
+                            </label>
+                            <input type="number" 
+                                   name="books[0][original_price]" 
+                                   required
+                                   min="0"
+                                   step="0.01"
+                                   placeholder="299.00"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+
                         <!-- Price -->
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">
@@ -222,6 +236,19 @@ function createBookEntry(index) {
                     <input type="text" 
                            name="books[${index}][author]" 
                            placeholder="Author name"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Original Price (₹) <span class="text-red-500">*</span>
+                    </label>
+                    <input type="number" 
+                           name="books[${index}][original_price]" 
+                           required
+                           min="0"
+                           step="0.01"
+                           placeholder="299.00"
                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
 

@@ -13,6 +13,7 @@ class PdfBook extends Model
 
     protected $fillable = [
         'title',
+        'category_id',
         'seller_id',
         'uploaded_by_admin_id',
         'isbn',
@@ -21,6 +22,7 @@ class PdfBook extends Model
         'publisher',
         'publication_year',
         'cover_image',
+        'original_price',
         'price',
         'google_drive_file_id',
         'google_drive_shareable_link',
@@ -31,6 +33,7 @@ class PdfBook extends Model
     ];
 
     protected $casts = [
+        'original_price' => 'decimal:2',
         'price' => 'decimal:2',
         'is_available' => 'boolean',
         'publication_year' => 'integer',
@@ -46,6 +49,22 @@ class PdfBook extends Model
     protected $appends = ['cover_image_url', 'formatted_file_size'];
 
     // Relationships
+
+    public function category()
+    {
+        return $this->belongsTo(PdfCategory::class);
+    }
+
+    public function scopeInCategory($query, $categoryId)
+    {
+        return $query->where('category_id', $categoryId);
+    }
+
+    public function scopeByCategory($query, $categoryId)
+    {
+        return $query->where('category_id', $categoryId);
+    }
+
     public function seller()
     {
         return $this->belongsTo(User::class, 'seller_id');
@@ -53,12 +72,12 @@ class PdfBook extends Model
 
     public function purchases()
     {
-        return $this->hasMany(PdfBookPurchase::class, 'pdf_book_id'); 
+        return $this->hasMany(PdfBookPurchase::class, 'pdf_book_id');
     }
 
     public function orders()
     {
-        return $this->hasMany(Order::class, 'pdf_book_id'); 
+        return $this->hasMany(Order::class, 'pdf_book_id');
     }
 
     // Scopes

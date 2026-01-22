@@ -8,18 +8,20 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use App\Models\PdfCategory;
 
 class PdfManagerController extends Controller
 {
+    
     /**
      * Show PDF upload form
      */
     public function index(Request $request)
     {
         $admin = auth('admin')->user();
-        
+
         $perPage = $request->get('per_page', 20);
-        
+
         // Show only books uploaded by this admin (managers see only their uploads)
         $query = PdfBook::with(['seller'])
             ->withCount('purchases')
@@ -29,7 +31,7 @@ class PdfManagerController extends Controller
         if ($admin->role === 'manager') {
             $query->where('uploaded_by_admin_id', $admin->id);
         }
-        
+
         $myBooks = $query->paginate($perPage)->withQueryString();
 
         // Stats based on role
@@ -55,6 +57,15 @@ class PdfManagerController extends Controller
         return view('admin.pdf-manager.index', compact('myBooks', 'stats'));
     }
 
+    public function getChildren($parentId)
+    {
+        $children = PdfCategory::where('parent_id', $parentId)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return response()->json($children);
+    }
+
     /**
      * Show upload form
      */
@@ -65,7 +76,11 @@ class PdfManagerController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('admin.pdf-manager.create', compact('users'));
+        $categories = PdfCategory::mainCategories()
+            ->with('children.children')
+            ->get();
+
+        return view('admin.pdf-manager.create', compact('users', 'categories'));
     }
 
     /**
@@ -75,6 +90,7 @@ class PdfManagerController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|exists:users,id',
+            'category_id' => 'nullable|exists:pdf_categories,id',
             'title' => 'required|string|max:255',
             'author' => 'nullable|string|max:255',
             'isbn' => 'nullable|string|max:255|unique:pdf_books,isbn,NULL,id,deleted_at,NULL',
@@ -82,6 +98,7 @@ class PdfManagerController extends Controller
             'publisher' => 'nullable|string|max:255',
             'publication_year' => 'nullable|integer|min:1900|max:' . date('Y'),
             'price' => 'required|numeric|min:0',
+            'original_price' => 'required|numeric|min:0',
             'google_drive_file_id' => 'required|string',
             'google_drive_shareable_link' => 'nullable|url',
             'cover_image' => 'nullable|image|mimes:jpeg,jpg,png|max:2048',
@@ -97,9 +114,20 @@ class PdfManagerController extends Controller
         }
 
         $data = $request->only([
-            'title', 'author', 'isbn', 'description', 'publisher',
-            'publication_year', 'price', 'google_drive_file_id',
-            'google_drive_shareable_link', 'file_size', 'total_pages', 'language'
+            'title',
+            'author',
+            'isbn',
+            'description',
+            'publisher',
+            'publication_year',
+            'price',
+            'original_price',
+            'google_drive_file_id',
+            'google_drive_shareable_link',
+            'file_size',
+            'total_pages',
+            'language',
+            'category_id'
         ]);
 
         // Set seller to selected user
@@ -137,7 +165,7 @@ class PdfManagerController extends Controller
     public function edit($id)
     {
         $book = PdfBook::findOrFail($id);
-        
+
         // Check if manager has permission to edit this book
         $admin = auth('admin')->user();
         if ($admin->role === 'manager' && $book->uploaded_by_admin_id != $admin->id) {
@@ -148,7 +176,11 @@ class PdfManagerController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('admin.pdf-manager.edit', compact('book', 'users'));
+        $categories = PdfCategory::mainCategories()
+            ->with('children.children')
+            ->get();
+
+        return view('admin.pdf-manager.edit', compact('book', 'users', 'categories'));
     }
 
     /**
@@ -166,6 +198,7 @@ class PdfManagerController extends Controller
 
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|exists:users,id',
+            'category_id' => 'nullable|exists:pdf_categories,id',
             'title' => 'required|string|max:255',
             'author' => 'nullable|string|max:255',
             'isbn' => "nullable|string|max:255|unique:pdf_books,isbn,{$id},id,deleted_at,NULL",
@@ -173,6 +206,7 @@ class PdfManagerController extends Controller
             'publisher' => 'nullable|string|max:255',
             'publication_year' => 'nullable|integer|min:1900|max:' . date('Y'),
             'price' => 'required|numeric|min:0',
+            'original_price' => 'required|numeric|min:0',
             'google_drive_file_id' => 'required|string',
             'google_drive_shareable_link' => 'nullable|url',
             'cover_image' => 'nullable|image|mimes:jpeg,jpg,png|max:2048',
@@ -189,9 +223,20 @@ class PdfManagerController extends Controller
         }
 
         $data = $request->only([
-            'title', 'author', 'isbn', 'description', 'publisher',
-            'publication_year', 'price', 'google_drive_file_id',
-            'google_drive_shareable_link', 'file_size', 'total_pages', 'language'
+            'title',
+            'author',
+            'isbn',
+            'description',
+            'publisher',
+            'publication_year',
+            'price',
+            'original_price',
+            'google_drive_file_id',
+            'google_drive_shareable_link',
+            'file_size',
+            'total_pages',
+            'language',
+            'category_id'
         ]);
 
         $data['seller_id'] = $request->user_id;
@@ -265,6 +310,7 @@ class PdfManagerController extends Controller
             'books.*.title' => 'required|string',
             'books.*.google_drive_file_id' => 'required|string',
             'books.*.price' => 'required|numeric|min:0',
+            'books.*.original_price' => 'required|numeric|min:0',
         ]);
 
         $successCount = 0;
@@ -278,6 +324,7 @@ class PdfManagerController extends Controller
                     'title' => $bookData['title'],
                     'author' => $bookData['author'] ?? null,
                     'price' => $bookData['price'],
+                    'original_price' => $bookData['original_price'],
                     'google_drive_file_id' => $bookData['google_drive_file_id'],
                     'google_drive_shareable_link' => $bookData['google_drive_shareable_link'] ?? null,
                     'description' => $bookData['description'] ?? null,

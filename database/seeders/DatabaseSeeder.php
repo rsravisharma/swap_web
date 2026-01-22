@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             PaymentMethodSeeder::class,
             LocationSeeder::class,
             SubscriptionPlanSeeder::class,
+            seedCategories::class,
             PdfBookSeeder::class,
             BlogPostSeeder::class,
         ]);

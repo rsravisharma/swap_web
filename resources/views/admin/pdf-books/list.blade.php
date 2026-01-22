@@ -188,7 +188,7 @@
                 @endif
 
                 <div class="flex items-center justify-between mb-3">
-                    <span class="text-2xl font-bold text-blue-600">₹{{ number_format($book->price, 0) }}</span>
+                    <span class="text-2xl font-bold text-blue-600">₹{{ number_format($book->price, 0) }} (₹{{ number_format($book->original_price, 0) }})</span>
                     @if($book->file_size)
                     <span class="text-xs text-gray-500">{{ $book->formatted_file_size }}</span>
                     @endif

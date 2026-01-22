@@ -50,7 +50,7 @@
                         @endif
 
                         <div class="flex items-center space-x-6 mb-4">
-                            <span class="text-4xl font-bold text-blue-600">₹{{ number_format($book->price, 2) }}</span>
+                            <span class="text-4xl font-bold text-blue-600">₹{{ number_format($book->price, 2) }} (₹{{ number_format($book->original_price, 2) }})</span>
                             @if($book->isbn)
                             <span class="text-gray-600"><i class="fas fa-barcode mr-1"></i>{{ $book->isbn }}</span>
                             @endif

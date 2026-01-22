@@ -114,6 +114,24 @@
                     @enderror
                 </div>
 
+                <!-- Original Price -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Original Price (₹) <span class="text-red-500">*</span>
+                    </label>
+                    <input type="number" 
+                           name="original_price" 
+                           value="{{ old('original_price', $book->original_price) }}"
+                           required
+                           min="0"
+                           step="0.01"
+                           placeholder="299.00"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 @error('original_price') border-red-500 @enderror">
+                    @error('original_price')
+                    <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                    @enderror
+                </div>
+
                 <!-- Price -->
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">

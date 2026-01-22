@@ -132,7 +132,7 @@
                             </a>
                             <p class="text-sm text-gray-600">by {{ $book->author ?? 'Unknown' }}</p>
                             <div class="flex items-center mt-1 space-x-2">
-                                <span class="text-lg font-bold text-blue-600">₹{{ number_format($book->price, 0) }}</span>
+                                <span class="text-lg font-bold text-blue-600">₹{{ number_format($book->price, 0) }} (₹{{ number_format($book->original_price, 0) }})</span>
                                 <span class="text-sm text-gray-500">{{ $book->purchases_count }} sales</span>
                             </div>
                         </div>

@@ -16,12 +16,14 @@ return new class extends Migration
             $table->foreignId('uploaded_by_admin_id')->nullable()->constrained('admins')->nullOnDelete();
             $table->string('title');
             $table->foreignId('seller_id')->constrained('users')->cascadeOnDelete();
+            $table->foreignId('category_id')->nullable()->constrained('pdf_categories')->nullOnDelete();
             $table->string('isbn')->nullable();
             $table->text('description')->nullable();
             $table->string('author')->nullable();
             $table->string('publisher')->nullable();
             $table->year('publication_year')->nullable();
             $table->string('cover_image')->nullable();
+            $table->decimal('original_price', 10, 2);
             $table->decimal('price', 10, 2);
             $table->string('google_drive_file_id')->unique(); 
             $table->string('google_drive_shareable_link')->nullable(); 
@@ -33,6 +35,7 @@ return new class extends Migration
             $table->softDeletes();
 
             $table->index(['seller_id']);
+            $table->index('category_id');
             $table->index('uploaded_by_admin_id');
             $table->index(['seller_id', 'is_available']);
             $table->index('is_available');

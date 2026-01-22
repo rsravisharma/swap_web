@@ -18,7 +18,7 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('payment_method_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('delivery_option_id')->nullable()->constrained()->nullOnDelete();
-            $table->json('delivery_address');
+            $table->json('delivery_address')->nullable();
             $table->text('notes')->nullable();
 
             // Define columns in the order you want them
