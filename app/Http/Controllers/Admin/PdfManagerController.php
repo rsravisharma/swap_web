@@ -12,7 +12,7 @@ use App\Models\PdfCategory;
 
 class PdfManagerController extends Controller
 {
-    
+
     /**
      * Show PDF upload form
      */
@@ -166,7 +166,7 @@ class PdfManagerController extends Controller
     {
         $book = PdfBook::findOrFail($id);
 
-        // Check if manager has permission to edit this book
+        // Permission check
         $admin = auth('admin')->user();
         if ($admin->role === 'manager' && $book->uploaded_by_admin_id != $admin->id) {
             abort(403, 'You do not have permission to edit this book.');
@@ -180,7 +180,37 @@ class PdfManagerController extends Controller
             ->with('children.children')
             ->get();
 
-        return view('admin.pdf-manager.edit', compact('book', 'users', 'categories'));
+        // Resolve current category path
+        $currentMainId = null;
+        $currentSubId = null;
+        $currentChildId = null;
+
+        $category = $book->category; // relation on PdfBook
+
+        if ($category) {
+            if ($category->parent && $category->parent->parent) {
+                // Book is assigned to child category
+                $currentChildId = $category->id;
+                $currentSubId   = $category->parent->id;
+                $currentMainId  = $category->parent->parent->id;
+            } elseif ($category->parent) {
+                // Book is assigned to sub category
+                $currentSubId  = $category->id;
+                $currentMainId = $category->parent->id;
+            } else {
+                // Book is assigned directly to main category
+                $currentMainId = $category->id;
+            }
+        }
+
+        return view('admin.pdf-manager.edit', compact(
+            'book',
+            'users',
+            'categories',
+            'currentMainId',
+            'currentSubId',
+            'currentChildId'
+        ));
     }
 
     /**

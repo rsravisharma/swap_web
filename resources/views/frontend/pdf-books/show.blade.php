@@ -203,7 +203,7 @@
                         @if($pdfBook->description)
                         <div class="mb-6">
                             <h3 class="text-lg font-semibold text-gray-900 mb-2">Description</h3>
-                            <p class="text-gray-700 leading-relaxed">{{ $pdfBook->description }}</p>
+                            <p class="text-gray-700 leading-relaxed">{!! $pdfBook->description !!}</p>
                         </div>
                         @endif
 

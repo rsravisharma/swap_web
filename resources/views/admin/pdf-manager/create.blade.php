@@ -306,18 +306,27 @@
                 <!-- Description -->
                 <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
+
+                    {{-- Visible Quill editor --}}
+                    <div id="quill-description" class="border border-gray-300 rounded-lg" style="min-height: 200px;"></div>
+
+                    {{-- Hidden textarea that will receive HTML from Quill --}}
                     <textarea name="description"
-                        rows="4"
-                        placeholder="Enter book description..."
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 @error('description') border-red-500 @enderror">{{ old('description') }}</textarea>
+                        id="description"
+                        class="hidden @error('description') border-red-500 @enderror">{{ old('description') }}</textarea>
+
                     @error('description')
                     <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
                     @enderror
+
+                    <p class="text-xs text-gray-500 mt-1">
+                        You can format the text (bold, bullets, numbered lists, etc.).
+                    </p>
                 </div>
             </div>
 
             <!-- Submit Buttons -->
-            <div class="flex items-center justify-end space-x-3 mt-8 pt-6 border-t">
+            <div class="flex items-center justify-end space-x-3 mt-10 pt-10 border-t">
                 <a href="{{ route('admin.pdf-manager.index') }}"
                     class="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-semibold">
                     Cancel
@@ -330,6 +339,12 @@
         </form>
     </div>
 </div>
+
+{{-- Quill CSS --}}
+<link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet">
+
+{{-- Quill JS --}}
+<script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
 
 
 <script>
@@ -345,6 +360,32 @@
 
         // Category data from server-side data attributes
         const mainCategories = @json($categories);
+
+         const quill = new Quill('#quill-description', {
+            theme: 'snow',
+            placeholder: 'Enter book description...',
+            modules: {
+                toolbar: [
+                    [{ header: [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline'],
+                    [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                    ['link', 'blockquote', 'clean']
+                ]
+            }
+        });
+
+        const hiddenTextarea = document.getElementById('description');
+
+        // If editing (old value), load HTML into Quill
+        if (hiddenTextarea.value) {
+            quill.root.innerHTML = hiddenTextarea.value;
+        }
+
+        // On submit, put Quill HTML into textarea
+        const form = hiddenTextarea.closest('form');
+        form.addEventListener('submit', function () {
+            hiddenTextarea.value = quill.root.innerHTML;
+        });
 
         // Get children of a category via AJAX
         function loadChildren(parentId, targetSelect) {
