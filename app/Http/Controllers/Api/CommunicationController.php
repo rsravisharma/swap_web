@@ -8,6 +8,8 @@ use App\Models\ChatOffer;
 use App\Models\User;
 use App\Models\BlockedUser;
 use App\Models\ChatReport;
+use App\Models\UserNotificationPreference;
+use App\Models\UserNotification;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -24,6 +26,9 @@ use App\Events\OfferAcceptedEvent;
 use App\Events\OfferRejectedEvent;
 use App\Events\MessageDeletedEvent;
 use App\Events\MessageEditedEvent;
+
+// Services
+use App\Services\FCMService;
 
 class CommunicationController extends Controller
 {
