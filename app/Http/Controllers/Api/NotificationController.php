@@ -14,44 +14,18 @@ use Kreait\Firebase\Factory;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;
 use App\Http\Controllers\Controller;
+use App\Services\FCMService;
 use App\Models\UserNotification;
+use Illuminate\Support\Facades\Log;
 
 
 class NotificationController extends Controller
 {
-    protected $messaging;
+    protected FCMService $fcmService;
 
     public function __construct()
     {
-        try {
-            $credentialsPath = config('firebase.credentials');
-            $projectId = config('firebase.project_id');
-
-
-            if (empty($credentialsPath)) {
-                throw new \Exception('Firebase credentials not configured. Please set FIREBASE_CREDENTIALS in your .env file.');
-            }
-
-            if (empty($projectId)) {
-                throw new \Exception('Firebase project ID not configured. Please set FIREBASE_PROJECT_ID in your .env file.');
-            }
-
-
-            if (!file_exists($credentialsPath)) {
-                throw new \Exception("Firebase credentials file not found at: {$credentialsPath}");
-            }
-
-            $factory = (new Factory)
-                ->withServiceAccount($credentialsPath)
-                ->withProjectId($projectId);
-
-            $this->messaging = $factory->createMessaging();
-        } catch (\Exception $e) {
-            \Log::error('Firebase initialization failed: ' . $e->getMessage());
-
-
-            $this->messaging = null;
-        }
+        $this->fcmService = new FCMService();
     }
 
     public function getNotifications()
@@ -325,6 +299,7 @@ class NotificationController extends Controller
             'topic' => 'required|string',
             'title' => 'required|string|max:100',
             'body' => 'required|string|max:200',
+            'type' => 'nullable|string|in:message,order,promotion,system',
             'data' => 'nullable|array',
         ]);
 
@@ -335,32 +310,67 @@ class NotificationController extends Controller
             ], 422);
         }
 
-        try {
-            $notification = Notification::create(
-                $request->title,
-                $request->body
-            );
+        $result = $this->fcmService->sendToTopic(
+            topic: $request->topic,
+            notification: [
+                'title' => $request->title,
+                'body' => $request->body,
+                'sound' => 'default'
+            ],
+            data: array_merge($request->data ?? [], [
+                'type' => $request->type ?? 'system',
+                'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                'timestamp' => now()->toISOString()
+            ])
+        );
 
-            $data = $request->data ?? [];
-            $data['type'] = 'announcement';
-
-            $message = CloudMessage::withTarget('topic', $request->topic)
-                ->withNotification($notification)
-                ->withData($data);
-
-            $this->messaging->send($message);
-
+        if ($result['success']) {
             return response()->json([
                 'success' => true,
-                'message' => 'Notification sent to topic successfully'
+                'message' => "Notification sent to {$request->topic} topic",
+                'result' => $result
             ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to send topic notification',
-                'error' => $e->getMessage()
-            ], 500);
         }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to send notification',
+            'error' => $result['error']
+        ], 500);
+    }
+
+    public function adminTestTopic(Request $request): JsonResponse
+    {
+        $this->middleware('admin'); // Add admin middleware
+
+        $validator = Validator::make($request->all(), [
+            'topic' => 'required|in:user_messages,user_orders,user_offers,promotions,system_updates,all_users',
+            'title' => 'required|string|max:100',
+            'body' => 'required|string|max:200',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $result = $this->fcmService->sendToTopic(
+            $request->topic,
+            [
+                'title' => $request->title,
+                'body' => $request->body,
+                'sound' => 'default'
+            ],
+            [
+                'type' => 'test',
+                'topic' => $request->topic
+            ]
+        );
+
+        return response()->json([
+            'success' => $result['success'],
+            'message' => $result['success'] ? 'Test notification sent!' : 'Failed to send test',
+            'result' => $result
+        ]);
     }
 
     /**
@@ -847,27 +857,4 @@ class NotificationController extends Controller
             ], 500);
         }
     }
-
-    /**
-     * Enhanced default preferences creation
-     */
-    // private function createDefaultPreferences($userId): UserNotificationPreference
-    // {
-    //     return UserNotificationPreference::create([
-    //         'user_id' => $userId,
-    //         'chat_notifications' => true,
-    //         'offer_notifications' => true,
-    //         'item_notifications' => true,
-    //         'marketing_notifications' => false,
-    //         'email_notifications' => true,
-    //         'sms_notifications' => false,
-    //         'sound_enabled' => true,
-    //         'vibration_enabled' => true,
-    //         'led_enabled' => true,
-    //         'quiet_hours_enabled' => false,
-    //         'quiet_hours_start' => '22:00',
-    //         'quiet_hours_end' => '07:00',
-    //         'security_notifications' => true,
-    //     ]);
-    // }
 }

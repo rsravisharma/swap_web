@@ -53,6 +53,7 @@ return new class extends Migration
 
             // App-specific fields
             $table->string('fcm_token')->nullable();
+            $table->json('notification_settings')->nullable();
             $table->string('device_id')->nullable();
             $table->enum('preferred_language', ['en', 'hi', 'es', 'fr'])->default('en');
 

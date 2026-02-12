@@ -30,6 +30,10 @@ use App\Http\Controllers\Admin\{
     PdfManagerController,
 };
 
+use App\Http\Controllers\Api\{
+    NotificationController,
+};
+
 // Admin Authentication Routes (outside admin middleware)
 Route::prefix('admin')->name('admin.')->group(function () {
 
@@ -52,6 +56,9 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
     // Authenticated admin routes
     Route::middleware(['admin'])->group(function () {
+
+        Route::post('notifications/test-topic', [NotificationController::class, 'adminTestTopic'])
+            ->name('admin.notifications.test-topic');
 
         // Logout (available to all admin roles)
         Route::post('/logout', [AdminAuthController::class, 'logout'])->name('logout');

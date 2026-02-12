@@ -236,26 +236,19 @@ class CommunicationController extends Controller
 
             // Get messages
             $messages = ChatMessage::where('session_id', $chatId)
-                ->with(['sender' => function ($query) {
-                    // 🔥 FIX: Load more fields and debug profile_image
-                    $query->select('id', 'name', 'profile_image')
-                        ->addSelect(\DB::raw('profile_image as debug_profile_image'));
-                }])
+                ->with(['sender:id,name,profile_image'])
                 ->orderBy('created_at', 'desc')
                 ->paginate($limit, ['*'], 'page', $page);
 
-            // 🔥 FIX: Enhanced formatting with debugging
+            // Format messages with full URLs
             $formattedMessages = collect($messages->items())->map(function ($message) {
                 $sender = $message->sender;
 
-                // 🔍 DEBUG: Log the actual sender data
-                \Log::info('Sender data for message', [
-                    'message_id' => $message->id,
-                    'sender_id' => $message->sender_id,
-                    'sender' => $sender ? $sender->toArray() : 'null',
-                    'profile_image_raw' => $sender?->profile_image,
-                    'full_profile_image_url' => $sender?->full_profile_image_url,
-                ]);
+                // 🔥 FIX: Convert message content to full URL if it's an image/file
+                $messageContent = $message->message;
+                if (in_array($message->message_type, ['image', 'file'])) {
+                    $messageContent = $this->convertToFullUrl($message->message);
+                }
 
                 return [
                     'id' => $message->id,
@@ -264,12 +257,9 @@ class CommunicationController extends Controller
                         'id' => $sender->id,
                         'name' => $sender->name,
                         'profile_image' => $sender->profile_image,
-                        'full_profile_image_url' => $sender->full_profile_image_url,
-                        'is_phone_verified' => $sender->is_phone_verified,
-                        'is_email_verified' => $sender->is_email_verified,
-                        'profile_completion_percentage' => $sender->profile_completion_percentage,
+                        'full_profile_image_url' => $sender->full_profile_image_url ?? $sender->profile_image,
                     ] : null,
-                    'message' => $message->message,
+                    'message' => $messageContent, // ✅ Now returns full URL for images
                     'message_type' => $message->message_type ?? 'text',
                     'status' => $message->status ?? 'sent',
                     'created_at' => $message->created_at,
@@ -305,6 +295,35 @@ class CommunicationController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Convert relative path to full URL
+     */
+    private function convertToFullUrl(?string $path): ?string
+    {
+        if (!$path) {
+            return null;
+        }
+
+        // Already a full URL
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        // Relative path starting with /storage/
+        if (str_starts_with($path, '/storage/')) {
+            return url($path);
+        }
+
+        // Path without leading slash
+        if (str_starts_with($path, 'storage/')) {
+            return url('/' . $path);
+        }
+
+        // Default: treat as storage path
+        return url('/storage/' . $path);
+    }
+
 
 
     /**
@@ -499,7 +518,7 @@ class CommunicationController extends Controller
         try {
             $image = $request->file('image');
             $path = $image->store('chat-images', 'public');
-            $imageUrl = Storage::url($path);
+            $imageUrl = url(Storage::url($path));
 
             return response()->json([
                 'success' => true,
@@ -536,7 +555,7 @@ class CommunicationController extends Controller
 
             foreach ($request->file('files') as $file) {
                 $path = $file->store('chat-files', 'public');
-                $fileUrls[] = Storage::url($path);
+                $fileUrls[] = url(Storage::url($path));
             }
 
             return response()->json([
@@ -1092,6 +1111,12 @@ class CommunicationController extends Controller
      */
     private function formatMessageResponse($message): array
     {
+        // Convert message content to full URL if it's an image/file
+        $messageContent = $message->message;
+        if (in_array($message->message_type, ['image', 'file'])) {
+            $messageContent = $this->convertToFullUrl($message->message);
+        }
+
         return [
             'id' => $message->id,
             'session_id' => $message->session_id,
@@ -1100,8 +1125,9 @@ class CommunicationController extends Controller
                 'id' => $message->sender->id,
                 'name' => $message->sender->name,
                 'profile_image' => $message->sender->profile_image,
+                'full_profile_image_url' => $message->sender->full_profile_image_url ?? $message->sender->profile_image,
             ],
-            'message' => $message->message,
+            'message' => $messageContent, // ✅ Full URL for images/files
             'message_type' => $message->message_type,
             'metadata' => $message->metadata,
             'status' => $message->status,

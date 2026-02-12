@@ -57,7 +57,7 @@ return [
         'access_key' => env('POSITIONSTACK_ACCESS_KEY'),
     ],
 
-     'razorpay' => [
+    'razorpay' => [
         'key' => env('RAZORPAY_KEY_ID'),
         'secret' => env('RAZORPAY_SECRET'),
         'timeout' => 60,
