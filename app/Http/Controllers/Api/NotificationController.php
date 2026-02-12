@@ -16,6 +16,7 @@ use Kreait\Firebase\Messaging\Notification;
 use App\Http\Controllers\Controller;
 use App\Services\FCMService;
 use App\Models\UserNotification;
+use App\Models\ChatOffer;
 use Illuminate\Support\Facades\Log;
 
 
@@ -199,31 +200,52 @@ class NotificationController extends Controller
                 return;
             }
 
-            // Check if chat is muted
-            if ($session->isMuted($recipientId)) {
-                return;
-            }
+            // Format message for notification
+            $body = match ($message->message_type) {
+                'image' => '📷 Photo',
+                'file' => '📎 File',
+                'offer' => '💰 Sent an offer',
+                'location' => '📍 Location',
+                default => $this->truncateMessage($message->message)
+            };
 
-            $notification = Notification::create(
-                "New message from {$sender->name}",
-                $this->truncateMessage($message->message)
+            $fcmService = app(FCMService::class);
+
+            $result = $fcmService->sendToDevice(
+                $recipient->fcm_token,
+                [
+                    'title' => $sender->name,
+                    'body' => $body,
+                    'sound' => 'default'
+                ],
+                [
+                    'type' => 'chat_message',
+                    'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                    'session_id' => (string) $session->id,
+                    'sender_id' => (string) $sender->id,
+                    'sender_name' => $sender->name,
+                    'message_id' => (string) $message->id,
+                    'message_type' => $message->message_type,
+                ]
             );
 
-            $data = [
-                'type' => 'chat',
-                'session_id' => (string) $session->id,
-                'sender_id' => (string) $sender->id,
-                'sender_name' => $sender->name,
-                'message_id' => (string) $message->id,
-            ];
-
-            $cloudMessage = CloudMessage::withTarget('token', $recipient->fcm_token)
-                ->withNotification($notification)
-                ->withData($data);
-
-            $this->messaging->send($cloudMessage);
+            if ($result['success']) {
+                // Save to database
+                UserNotification::create([
+                    'user_id' => $recipientId,
+                    'title' => $sender->name,
+                    'body' => $body,
+                    'type' => 'chat',
+                    'data' => json_encode([
+                        'session_id' => $session->id,
+                        'sender_id' => $sender->id,
+                        'message_id' => $message->id,
+                    ]),
+                    'is_read' => false,
+                ]);
+            }
         } catch (\Exception $e) {
-            \Log::error('Failed to send chat notification: ' . $e->getMessage());
+            Log::error('Failed to send chat notification: ' . $e->getMessage());
         }
     }
 

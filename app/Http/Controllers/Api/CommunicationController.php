@@ -489,11 +489,133 @@ class CommunicationController extends Controller
     private function sendPushNotification(ChatSession $session, ChatMessage $message): void
     {
         try {
-            // Use your existing NotificationController method
-            $notificationController = app(NotificationController::class);
-            $notificationController->sendChatNotification($message);
+            $sender = $message->sender;
+
+            // Get recipient user ID
+            $recipientId = $session->user_one_id === $sender->id
+                ? $session->user_two_id
+                : $session->user_one_id;
+
+            $recipient = User::find($recipientId);
+
+            if (!$recipient) {
+                Log::warning('Recipient not found for notification', [
+                    'recipient_id' => $recipientId,
+                    'message_id' => $message->id
+                ]);
+                return;
+            }
+
+            // Check if recipient has FCM token
+            if (!$recipient->fcm_token) {
+                Log::info('No FCM token for recipient', [
+                    'recipient_id' => $recipientId
+                ]);
+                return;
+            }
+
+            // Check notification preferences
+            $preferences = UserNotificationPreference::where('user_id', $recipientId)->first();
+            if ($preferences && !$preferences->chat_notifications) {
+                Log::info('Chat notifications disabled for user', [
+                    'recipient_id' => $recipientId
+                ]);
+                return;
+            }
+
+            // Check if user has push notifications enabled
+            if (!$recipient->push_notifications && !$recipient->notifications_enabled) {
+                Log::info('Push notifications disabled for user', [
+                    'recipient_id' => $recipientId
+                ]);
+                return;
+            }
+
+            // Format notification based on message type
+            $notificationBody = $this->formatNotificationBody($message);
+
+            // Prepare notification data
+            $fcmService = app(FCMService::class);
+
+            $notificationData = [
+                'title' => $sender->name,
+                'body' => $notificationBody,
+                'sound' => 'default'
+            ];
+
+            $data = [
+                'type' => 'chat_message',
+                'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                'session_id' => (string) $session->id,
+                'sender_id' => (string) $sender->id,
+                'sender_name' => $sender->name,
+                'sender_image' => $sender->profile_image ?? '',
+                'message_id' => (string) $message->id,
+                'message_type' => $message->message_type,
+                'timestamp' => $message->created_at->toISOString(),
+            ];
+
+            // Add item info if it's a product inquiry
+            if ($session->item) {
+                $data['item_id'] = (string) $session->item->id;
+                $data['item_title'] = $session->item->title;
+                $data['item_image'] = $session->item->images[0] ?? '';
+            }
+
+            // Send notification
+            $result = $fcmService->sendToDevice(
+                $recipient->fcm_token,
+                $notificationData,
+                $data
+            );
+
+            if ($result['success']) {
+                Log::info('Chat notification sent successfully', [
+                    'recipient_id' => $recipientId,
+                    'message_id' => $message->id,
+                    'fcm_message_id' => $result['message_id']
+                ]);
+
+                // Create notification record in database
+                UserNotification::create([
+                    'user_id' => $recipientId,
+                    'title' => $notificationData['title'],
+                    'body' => $notificationData['body'],
+                    'type' => 'chat',
+                    'data' => json_encode($data),
+                    'is_read' => false,
+                ]);
+            } else {
+                Log::error('Failed to send chat notification', [
+                    'recipient_id' => $recipientId,
+                    'error' => $result['error'] ?? 'Unknown error'
+                ]);
+            }
         } catch (\Exception $e) {
-            Log::error('Push notification failed: ' . $e->getMessage());
+            Log::error('Push notification failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    private function formatNotificationBody(ChatMessage $message): string
+    {
+        switch ($message->message_type) {
+            case 'image':
+                return '📷 Photo';
+            case 'file':
+                return '📎 File';
+            case 'offer':
+                return '💰 Sent an offer';
+            case 'location':
+                return '📍 Location';
+            case 'text':
+            default:
+                // Truncate long messages
+                return strlen($message->message) > 60
+                    ? substr($message->message, 0, 60) . '...'
+                    : $message->message;
         }
     }
 
@@ -810,7 +932,7 @@ class CommunicationController extends Controller
                 $deleteData['message'] = '[Message deleted]';
             } else {
                 $deleteData['message'] = '[Message deleted]';
-                $deleteData['message_type'] = 'text'; 
+                $deleteData['message_type'] = 'text';
             }
 
             $message->update($deleteData);
