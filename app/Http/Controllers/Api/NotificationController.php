@@ -225,7 +225,7 @@ class NotificationController extends Controller
                     'sender_id' => (string) $sender->id,
                     'sender_name' => $sender->name,
                     'message_id' => (string) $message->id,
-                    'message_type' => $message->message_type,
+                    'msg_type' => $message->message_type,  // 🔥 CHANGED from message_type to msg_type
                 ]
             );
 

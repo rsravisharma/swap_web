@@ -528,7 +528,7 @@ class CommunicationController extends Controller
                 return;
             }
 
-            // Check if user has push notifications enabled
+            // Check if user has push notifications enabled (from users table)
             if (!$recipient->push_notifications && !$recipient->notifications_enabled) {
                 Log::info('Push notifications disabled for user', [
                     'recipient_id' => $recipientId
@@ -539,7 +539,7 @@ class CommunicationController extends Controller
             // Format notification based on message type
             $notificationBody = $this->formatNotificationBody($message);
 
-            // Prepare notification data
+            // Use FCMService
             $fcmService = app(FCMService::class);
 
             $notificationData = [
@@ -556,7 +556,7 @@ class CommunicationController extends Controller
                 'sender_name' => $sender->name,
                 'sender_image' => $sender->profile_image ?? '',
                 'message_id' => (string) $message->id,
-                'message_type' => $message->message_type,
+                'msg_type' => $message->message_type,  // 🔥 CHANGED from message_type to msg_type
                 'timestamp' => $message->created_at->toISOString(),
             ];
 
@@ -564,7 +564,9 @@ class CommunicationController extends Controller
             if ($session->item) {
                 $data['item_id'] = (string) $session->item->id;
                 $data['item_title'] = $session->item->title;
-                $data['item_image'] = $session->item->images[0] ?? '';
+                if (isset($session->item->images[0])) {
+                    $data['item_image'] = $session->item->images[0];
+                }
             }
 
             // Send notification
