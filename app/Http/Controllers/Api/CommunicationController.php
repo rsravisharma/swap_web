@@ -800,13 +800,21 @@ class CommunicationController extends Controller
                 ], 404);
             }
 
-            $message->update([
-                'message' => '[Message deleted]',
+            // 🔥 FIX: Handle image/file messages differently
+            $deleteData = [
                 'is_deleted' => true,
                 'deleted_at' => now(),
-            ]);
+            ];
 
-            // UPDATED: Use Laravel Broadcasting
+            if ($message->message_type === 'text') {
+                $deleteData['message'] = '[Message deleted]';
+            } else {
+                $deleteData['message'] = '[Message deleted]';
+                $deleteData['message_type'] = 'text'; 
+            }
+
+            $message->update($deleteData);
+
             broadcast(new MessageDeletedEvent($messageId, $chatId, $currentUserId))->toOthers();
 
             return response()->json([
