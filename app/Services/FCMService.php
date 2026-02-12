@@ -54,14 +54,15 @@ class FCMService
                 ->withNotification($firebaseNotification)
                 ->withData($data);
 
-            // Android specific config
+            // 🔥 FIXED: Android specific config - use fromArray instead of create()
             if (isset($notification['sound'])) {
-                $androidConfig = AndroidConfig::create()
-                    ->withPriority('high')
-                    ->withNotification(AndroidConfig\Notification::create()
-                        ->withSound($notification['sound'])
-                        ->withBadgeIcon(1)
-                    );
+                $androidConfig = AndroidConfig::fromArray([
+                    'priority' => 'high',
+                    'notification' => [
+                        'sound' => $notification['sound'],
+                        'channel_id' => 'default',
+                    ],
+                ]);
                 $message = $message->withAndroidConfig($androidConfig);
             }
 
@@ -111,14 +112,16 @@ class FCMService
                 ->withNotification($firebaseNotification)
                 ->withData($data);
 
-            // Android config for better delivery
-            $androidConfig = AndroidConfig::create()
-                ->withPriority('high')
-                ->withNotification(AndroidConfig\Notification::create()
-                    ->withSound('default')
-                    ->withBadgeIcon(1)
-                    ->withChannelId('default')
-                );
+            // 🔥 FIXED: Android config for better delivery - use fromArray instead of create()
+            $androidConfig = AndroidConfig::fromArray([
+                'priority' => 'high',
+                'notification' => [
+                    'sound' => 'default',
+                    'channel_id' => 'chat_messages',
+                    'default_sound' => true,
+                    'notification_priority' => 'PRIORITY_HIGH',
+                ],
+            ]);
 
             $message = $message->withAndroidConfig($androidConfig);
 
@@ -169,7 +172,7 @@ class FCMService
         }
 
         try {
-            $this->messaging->subscribeToTopic($tokens, $topic);
+            $this->messaging->subscribeToTopic($topic, $tokens);
             return ['success' => true, 'topic' => $topic, 'tokens' => count($tokens)];
         } catch (\Exception $e) {
             return ['success' => false, 'error' => $e->getMessage()];
@@ -186,7 +189,7 @@ class FCMService
         }
 
         try {
-            $this->messaging->unsubscribeFromTopic($tokens, $topic);
+            $this->messaging->unsubscribeFromTopic($topic, $tokens);
             return ['success' => true, 'topic' => $topic, 'tokens' => count($tokens)];
         } catch (\Exception $e) {
             return ['success' => false, 'error' => $e->getMessage()];
