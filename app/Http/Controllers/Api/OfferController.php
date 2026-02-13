@@ -11,19 +11,27 @@ use App\Models\StudyMaterialRequest;
 use App\Models\Item;
 use App\Models\PaymentMethod;
 use App\Models\DeliveryOption;
+use App\Models\User;
+use App\Models\UserNotification;
+use App\Models\UserNotificationPreference;
+use App\Services\FCMService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class OfferController extends Controller
 {
 
-    /**
-     * Get offers
-     * GET /offers
-     */
+    protected $fcmService;
+
+    public function __construct()
+    {
+        $this->fcmService = app(FCMService::class);
+    }
+
     public function getOffers(Request $request): JsonResponse
     {
         try {
@@ -51,9 +59,9 @@ class OfferController extends Controller
                     $offersQuery->where('status', 'accepted');
                     break;
 
-                case 'inactive': // NEW: renamed from rejected
+                case 'inactive':
                     $offersQuery->whereIn('status', ['rejected', 'cancelled'])
-                        ->where('updated_at', '>=', now()->subDays(7)); // auto-hide after 7 days
+                        ->where('updated_at', '>=', now()->subDays(7));
                     break;
             }
 
@@ -80,7 +88,7 @@ class OfferController extends Controller
                 ],
             ]);
         } catch (\Exception $e) {
-            \Log::error('Error fetching offers', [
+            Log::error('Error fetching offers', [
                 'error' => $e->getMessage(),
             ]);
 
@@ -140,10 +148,8 @@ class OfferController extends Controller
                 'counterOffers.receiver',
             ])->findOrFail($offerId);
 
-            // Find root offer
             $rootOffer = $offer->rootOffer();
 
-            // Load all offers in this chain: root + counter offers ordered by created_at
             $offerChain = Offer::where('id', $rootOffer->id)
                 ->orWhere('parent_offer_id', $rootOffer->id)
                 ->with(['item.user', 'item.images', 'sender', 'receiver', 'parentOffer'])
@@ -164,17 +170,13 @@ class OfferController extends Controller
     }
 
 
-    /**
-     * Send offer
-     * POST /offers
-     */
     public function sendOffer(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'item_id' => 'required|integer|exists:items,id',
             'amount' => 'required|numeric|min:1',
             'message' => 'nullable|string|max:500',
-            'parent_offer_id' => 'nullable|integer|exists:offers,id', // NEW: For counter offers
+            'parent_offer_id' => 'nullable|integer|exists:offers,id',
         ]);
 
         if ($validator->fails()) {
@@ -186,9 +188,8 @@ class OfferController extends Controller
 
         try {
             $user = Auth::user();
-            $item = Item::find($request->item_id);
+            $item = Item::with('user')->find($request->item_id);
 
-            // Check if user is trying to offer on their own item
             if ($item->user_id === $user->id) {
                 return response()->json([
                     'success' => false,
@@ -196,11 +197,9 @@ class OfferController extends Controller
                 ], 400);
             }
 
-            // NEW: Determine if this is a counter offer
             $isCounterOffer = $request->filled('parent_offer_id');
             $receiverId = $item->user_id;
 
-            // NEW: If it's a counter offer, validate parent offer and swap sender/receiver
             if ($isCounterOffer) {
                 $parentOffer = Offer::find($request->parent_offer_id);
                 if (!$parentOffer || !$parentOffer->isPending()) {
@@ -210,7 +209,6 @@ class OfferController extends Controller
                     ], 400);
                 }
 
-                // For counter offers, the receiver becomes the original sender
                 $receiverId = $parentOffer->sender_id;
             }
 
@@ -218,19 +216,34 @@ class OfferController extends Controller
                 'sender_id' => $user->id,
                 'receiver_id' => $receiverId,
                 'item_id' => $request->item_id,
-                'parent_offer_id' => $request->parent_offer_id, // NEW
+                'parent_offer_id' => $request->parent_offer_id,
                 'amount' => $request->amount,
                 'message' => $request->message,
                 'status' => 'pending',
-                'offer_type' => $isCounterOffer ? 'counter' : 'initial' // NEW
+                'offer_type' => $isCounterOffer ? 'counter' : 'initial'
             ]);
+
+            // Load relationships
+            $offer->load(['item', 'sender', 'receiver', 'parentOffer']);
+
+            // 🔥 SEND NOTIFICATION TO RECEIVER
+            if ($isCounterOffer) {
+                $this->sendCounterOfferNotification($offer, $item);
+            } else {
+                $this->sendNewOfferNotification($offer, $item);
+            }
 
             return response()->json([
                 'success' => true,
-                'data' => $offer->load(['item', 'sender', 'parentOffer']),
+                'data' => $offer,
                 'message' => $isCounterOffer ? 'Counter offer sent successfully' : 'Offer sent successfully'
             ], 201);
         } catch (\Exception $e) {
+            Log::error('Failed to send offer', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to send offer',
@@ -257,11 +270,9 @@ class OfferController extends Controller
         try {
             $user = Auth::user();
 
-            // Find the original offer
-            $originalOffer = Offer::with(['item', 'sender', 'receiver'])
+            $originalOffer = Offer::with(['item.user', 'sender', 'receiver'])
                 ->findOrFail($offerId);
 
-            // Validate that user can send counter offer
             if ($originalOffer->receiver_id !== $user->id) {
                 return response()->json([
                     'success' => false,
@@ -276,37 +287,39 @@ class OfferController extends Controller
                 ], 400);
             }
 
-            // Get the root offer (in case this is already a counter offer)
             $rootOffer = $originalOffer->rootOffer();
 
             DB::beginTransaction();
 
             try {
-                // Mark the original offer as rejected (since we're countering)
                 $originalOffer->update([
                     'status' => 'rejected',
                     'rejected_at' => now(),
                     'rejection_reason' => 'Counter offer made'
                 ]);
 
-                // Create the counter offer
-                // Note: sender and receiver are swapped for counter offers
                 $counterOffer = Offer::create([
-                    'sender_id' => $user->id,  // Current user becomes sender
-                    'receiver_id' => $originalOffer->sender_id,  // Original sender becomes receiver
+                    'sender_id' => $user->id,
+                    'receiver_id' => $originalOffer->sender_id,
                     'item_id' => $rootOffer->item_id,
-                    'parent_offer_id' => $rootOffer->id,  // Link to root offer
+                    'parent_offer_id' => $rootOffer->id,
                     'amount' => $request->amount,
                     'message' => $request->message,
                     'status' => 'pending',
                     'offer_type' => 'counter'
                 ]);
 
+                // Load relationships for notification
+                $counterOffer->load(['item.user', 'sender', 'receiver', 'parentOffer']);
+
+                // 🔥 SEND NOTIFICATION TO ORIGINAL SENDER
+                $this->sendCounterOfferNotification($counterOffer, $counterOffer->item);
+
                 DB::commit();
 
                 return response()->json([
                     'success' => true,
-                    'data' => $counterOffer->load(['item', 'sender', 'receiver', 'parentOffer']),
+                    'data' => $counterOffer,
                     'message' => 'Counter offer sent successfully'
                 ], 201);
             } catch (\Exception $e) {
@@ -314,6 +327,11 @@ class OfferController extends Controller
                 throw $e;
             }
         } catch (\Exception $e) {
+            Log::error('Failed to send counter offer', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to send counter offer',
@@ -322,15 +340,11 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Accept offer
-     * PUT /offers/{offerId}/accept
-     */
     public function acceptOffer(string $offerId): JsonResponse
     {
         try {
             $user = Auth::user();
-            $offer = Offer::with(['parentOffer', 'counterOffers'])
+            $offer = Offer::with(['parentOffer', 'counterOffers', 'item', 'sender'])
                 ->where('id', $offerId)
                 ->where('receiver_id', $user->id)
                 ->where('status', 'pending')
@@ -343,21 +357,17 @@ class OfferController extends Controller
                 ], 404);
             }
 
-            // NEW: Use database transaction for offer chain management
             DB::beginTransaction();
 
             try {
-                // Accept the current offer
                 $offer->update([
                     'status' => 'accepted',
                     'accepted_at' => now()
                 ]);
 
-                // NEW: If this is a counter offer, reject all other pending offers in the chain
                 $rootOffer = $offer->isCounterOffer() ? $offer->parentOffer : $offer;
 
                 if ($rootOffer) {
-                    // Reject all other pending offers for this item from the same chain
                     Offer::where('item_id', $offer->item_id)
                         ->where('id', '!=', $offer->id)
                         ->where(function ($query) use ($rootOffer) {
@@ -372,8 +382,8 @@ class OfferController extends Controller
                         ]);
                 }
 
-                // NEW: Mark the item as sold/reserved (optional)
-                // $offer->item->update(['status' => 'sold']);
+                // 🔥 SEND NOTIFICATION TO SENDER
+                $this->sendOfferAcceptedNotification($offer);
 
                 DB::commit();
 
@@ -395,15 +405,62 @@ class OfferController extends Controller
         }
     }
 
+    private function sendOfferAcceptedNotification(Offer $offer)
+    {
+        try {
+            $sender = User::find($offer->sender_id);
+            $accepter = $offer->receiver;
 
-    /**
-     * Reject offer
-     * PUT /offers/{offerId}/reject
-     */
+            if (!$sender || !$sender->fcm_token) {
+                return;
+            }
+
+            $preferences = UserNotificationPreference::where('user_id', $sender->id)->first();
+            if ($preferences && !$preferences->offer_notifications) {
+                return;
+            }
+
+            $title = "Offer Accepted!";
+            $body = "{$accepter->name} accepted your ₹{$offer->amount} offer on {$offer->item->title}";
+
+            $result = $this->fcmService->sendToDevice(
+                $sender->fcm_token,
+                [
+                    'title' => $title,
+                    'body' => $body,
+                    'sound' => 'default'
+                ],
+                [
+                    'type' => 'offer_accepted',
+                    'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                    'offer_id' => (string) $offer->id,
+                    'item_id' => (string) $offer->item_id,
+                    'timestamp' => now()->toISOString(),
+                ]
+            );
+
+            if ($result['success']) {
+                UserNotification::create([
+                    'user_id' => $sender->id,
+                    'title' => $title,
+                    'body' => $body,
+                    'type' => 'offer',
+                    'data' => json_encode(['offer_id' => $offer->id]),
+                    'is_read' => false,
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Offer accepted notification failed', [
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+
     public function rejectOffer(Request $request, string $offerId): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'reason' => 'nullable|string|max:500', // CHANGED: Made optional
+            'reason' => 'nullable|string|max:500',
         ]);
 
         if ($validator->fails()) {
@@ -415,7 +472,7 @@ class OfferController extends Controller
 
         try {
             $user = Auth::user();
-            $offer = Offer::with('parentOffer')
+            $offer = Offer::with(['parentOffer', 'item', 'sender', 'receiver']) // Load relationships
                 ->where('id', $offerId)
                 ->where('receiver_id', $user->id)
                 ->where('status', 'pending')
@@ -431,8 +488,10 @@ class OfferController extends Controller
             $offer->update([
                 'status' => 'rejected',
                 'rejected_at' => now(),
-                'rejection_reason' => $request->reason ?? 'Offer rejected' // NEW: Default reason
+                'rejection_reason' => $request->reason ?? 'Offer rejected'
             ]);
+
+            $this->sendOfferRejectedNotification($offer, $request->reason);
 
             return response()->json([
                 'success' => true,
@@ -440,6 +499,11 @@ class OfferController extends Controller
                 'data' => $offer->fresh()
             ]);
         } catch (\Exception $e) {
+            Log::error('Failed to reject offer', [
+                'offer_id' => $offerId,
+                'error' => $e->getMessage()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reject offer',
@@ -449,15 +513,11 @@ class OfferController extends Controller
     }
 
 
-    /**
-     * Cancel offer
-     * DELETE /offers/{offerId}
-     */
     public function cancelOffer(string $offerId): JsonResponse
     {
         try {
             $user = Auth::user();
-            $offer = Offer::with(['counterOffers'])
+            $offer = Offer::with(['counterOffers', 'item', 'sender', 'receiver']) // Load relationships
                 ->where('id', $offerId)
                 ->where('sender_id', $user->id)
                 ->where('status', 'pending')
@@ -470,18 +530,23 @@ class OfferController extends Controller
                 ], 404);
             }
 
-            // NEW: Use transaction to handle cascading cancellations
             DB::beginTransaction();
 
             try {
-                // Cancel the current offer
                 $offer->update([
                     'status' => 'cancelled',
                     'cancelled_at' => now()
                 ]);
 
-                // NEW: If this is an initial offer, cancel all pending counter offers
+                // Store counter offers that need notifications before cancelling
+                $activeCounterOffers = [];
                 if ($offer->isInitialOffer() && $offer->counterOffers()->exists()) {
+                    $activeCounterOffers = $offer->counterOffers()
+                        ->where('status', 'pending')
+                        ->with(['sender', 'receiver', 'item'])
+                        ->get()
+                        ->toArray();
+
                     $offer->counterOffers()
                         ->where('status', 'pending')
                         ->update([
@@ -489,6 +554,16 @@ class OfferController extends Controller
                             'cancelled_at' => now(),
                             'rejection_reason' => 'Original offer was cancelled'
                         ]);
+                }
+
+                // 🔥 SEND NOTIFICATION TO RECEIVER
+                $this->sendOfferCancelledNotification($offer);
+
+                // 🔥 SEND NOTIFICATIONS TO COUNTER OFFER SENDERS
+                if (!empty($activeCounterOffers)) {
+                    foreach ($activeCounterOffers as $counterOfferData) {
+                        $this->sendCounterOfferCancelledNotification($counterOfferData, $offer);
+                    }
                 }
 
                 DB::commit();
@@ -502,6 +577,11 @@ class OfferController extends Controller
                 throw $e;
             }
         } catch (\Exception $e) {
+            Log::error('Failed to cancel offer', [
+                'offer_id' => $offerId,
+                'error' => $e->getMessage()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to cancel offer',
@@ -510,10 +590,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Cancel order
-     * PUT /orders/{orderId}/cancel
-     */
     public function cancelOrder(string $orderId): JsonResponse
     {
         try {
@@ -555,10 +631,6 @@ class OfferController extends Controller
     }
 
 
-    /**
-     * Get basket items
-     * GET /basket/items
-     */
     public function getBasketItems(): JsonResponse
     {
         try {
@@ -580,10 +652,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Remove single item from basket
-     * DELETE /basket/items/{basketItemId}
-     */
     public function removeBasketItem(string $basketItemId): JsonResponse
     {
         try {
@@ -614,10 +682,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Remove multiple items from basket
-     * POST /basket/remove-multiple
-     */
     public function removeMultipleBasketItems(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -653,10 +717,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Clear entire basket
-     * DELETE /basket/clear
-     */
     public function clearBasket(): JsonResponse
     {
         try {
@@ -677,10 +737,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Move basket item to wishlist
-     * POST /wishlist/add
-     */
     public function moveToWishlist(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -700,7 +756,6 @@ class OfferController extends Controller
             $basketItemId = $request->input('basket_item_id');
             $itemId = $request->input('item_id');
 
-            // Find and delete the basket item
             $basketItem = BasketItem::where('id', $basketItemId)
                 ->where('user_id', $user->id)
                 ->first();
@@ -712,13 +767,11 @@ class OfferController extends Controller
                 ], 404);
             }
 
-            // Add to wishlist using firstOrCreate to prevent duplicates
             $wishlist = Wishlist::firstOrCreate([
                 'user_id' => $user->id,
                 'item_id' => $itemId
             ]);
 
-            // Delete from basket
             $basketItem->delete();
 
             return response()->json([
@@ -738,11 +791,6 @@ class OfferController extends Controller
         }
     }
 
-
-    /**
-     * Get payment methods
-     * GET /payment/methods
-     */
     public function getPaymentMethods(): JsonResponse
     {
         try {
@@ -761,10 +809,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Get delivery options
-     * GET /delivery/options
-     */
     public function getDeliveryOptions(): JsonResponse
     {
         try {
@@ -783,10 +827,7 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Process checkout
-     * POST /checkout
-     */
+
     public function processCheckout(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -809,7 +850,6 @@ class OfferController extends Controller
 
             DB::beginTransaction();
 
-            // Create order
             $order = Order::create([
                 'user_id' => $user->id,
                 'payment_method_id' => $request->payment_method_id,
@@ -817,12 +857,11 @@ class OfferController extends Controller
                 'delivery_address' => $request->delivery_address,
                 'notes' => $request->notes,
                 'status' => 'pending',
-                'total_amount' => 0 // Will be calculated
+                'total_amount' => 0
             ]);
 
             $totalAmount = 0;
 
-            // Process order items
             foreach ($request->items as $itemData) {
                 $item = Item::find($itemData['item_id']);
                 if ($item) {
@@ -839,7 +878,6 @@ class OfferController extends Controller
 
             $order->update(['total_amount' => $totalAmount]);
 
-            // Clear basket items
             BasketItem::where('user_id', $user->id)->delete();
 
             DB::commit();
@@ -859,10 +897,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Get user orders
-     * GET /orders
-     */
     public function getOrders(): JsonResponse
     {
         try {
@@ -885,10 +919,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Get order details
-     * GET /orders/{orderId}
-     */
     public function getOrderDetails(string $orderId): JsonResponse
     {
         try {
@@ -918,10 +948,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Get order tracking
-     * GET /orders/{orderId}/tracking
-     */
     public function getOrderTracking(string $orderId): JsonResponse
     {
         try {
@@ -953,11 +979,6 @@ class OfferController extends Controller
     }
 
 
-
-    /**
-     * Get study material requests
-     * GET /study-material-requests
-     */
     public function getStudyMaterialRequests(): JsonResponse
     {
         try {
@@ -979,10 +1000,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Create study material request
-     * POST /study-material-requests
-     */
     public function createStudyMaterialRequest(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -1031,10 +1048,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Delete study material request
-     * DELETE /study-material-requests/{requestId}
-     */
     public function deleteStudyMaterialRequest(string $requestId): JsonResponse
     {
         try {
@@ -1065,10 +1078,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Mark request as fulfilled
-     * PUT /study-material-requests/{requestId}/fulfill
-     */
     public function markRequestFulfilled(string $requestId): JsonResponse
     {
         try {
@@ -1102,10 +1111,6 @@ class OfferController extends Controller
         }
     }
 
-    /**
-     * Get user preferences
-     * GET /user/preferences
-     */
     public function getUserPreferences(): JsonResponse
     {
         try {
@@ -1126,6 +1131,543 @@ class OfferController extends Controller
                 'message' => 'Failed to fetch user preferences',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    private function sendNewOfferNotification(Offer $offer, Item $item)
+    {
+        try {
+            $receiver = User::find($offer->receiver_id);
+            $sender = $offer->sender;
+
+            if (!$receiver || !$receiver->fcm_token) {
+                Log::info('Receiver has no FCM token', [
+                    'receiver_id' => $offer->receiver_id
+                ]);
+                return;
+            }
+
+            // Check notification preferences
+            $preferences = UserNotificationPreference::where('user_id', $receiver->id)->first();
+            if ($preferences && !$preferences->offer_notifications) {
+                Log::info('Offer notifications disabled for receiver', [
+                    'receiver_id' => $receiver->id
+                ]);
+                return;
+            }
+
+            // Check if user has push notifications enabled
+            if (!$receiver->push_notifications && !$receiver->notifications_enabled) {
+                Log::info('Push notifications disabled for user', [
+                    'receiver_id' => $receiver->id
+                ]);
+                return;
+            }
+
+            // Format notification
+            $title = "New Offer from {$sender->name}";
+            $body = "₹{$offer->amount} offer on {$item->title}";
+
+            if ($offer->message) {
+                $messagePreview = substr($offer->message, 0, 50);
+                if (strlen($offer->message) > 50) {
+                    $messagePreview .= "...";
+                }
+                $body .= " - {$messagePreview}";
+            }
+
+            // Prepare FCM data
+            $notificationData = [
+                'title' => $title,
+                'body' => $body,
+                'sound' => 'default'
+            ];
+
+            $data = [
+                'type' => 'offer_received',
+                'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                'offer_id' => (string) $offer->id,
+                'item_id' => (string) $item->id,
+                'item_title' => $item->title,
+                'sender_id' => (string) $sender->id,
+                'sender_name' => $sender->name,
+                'amount' => (string) $offer->amount,
+                'offer_type' => 'initial',
+                'timestamp' => now()->toISOString(),
+            ];
+
+            // Add sender profile image if available
+            if ($sender->profile_image) {
+                $data['sender_image'] = $sender->profile_image;
+            }
+
+            // Add item image if available
+            if ($item->images && is_array($item->images) && count($item->images) > 0) {
+                $data['item_image'] = $item->images[0];
+            }
+
+            // Send FCM notification
+            $result = $this->fcmService->sendToDevice(
+                $receiver->fcm_token,
+                $notificationData,
+                $data
+            );
+
+            if ($result['success']) {
+                Log::info('Offer notification sent successfully', [
+                    'receiver_id' => $receiver->id,
+                    'offer_id' => $offer->id,
+                    'fcm_message_id' => $result['message_id']
+                ]);
+
+                // Save notification to database
+                UserNotification::create([
+                    'user_id' => $receiver->id,
+                    'title' => $title,
+                    'body' => $body,
+                    'type' => 'offer',
+                    'data' => json_encode($data),
+                    'is_read' => false,
+                ]);
+            } else {
+                Log::error('Failed to send offer notification', [
+                    'receiver_id' => $receiver->id,
+                    'error' => $result['error'] ?? 'Unknown error'
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Offer notification failed', [
+                'offer_id' => $offer->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Send push notification for counter offer
+     */
+    private function sendCounterOfferNotification(Offer $counterOffer, Item $item)
+    {
+        try {
+            $receiver = User::find($counterOffer->receiver_id);
+            $sender = $counterOffer->sender;
+
+            if (!$receiver || !$receiver->fcm_token) {
+                Log::info('Receiver has no FCM token for counter offer', [
+                    'receiver_id' => $counterOffer->receiver_id
+                ]);
+                return;
+            }
+
+            // Check notification preferences
+            $preferences = UserNotificationPreference::where('user_id', $receiver->id)->first();
+            if ($preferences && !$preferences->offer_notifications) {
+                Log::info('Offer notifications disabled for receiver', [
+                    'receiver_id' => $receiver->id
+                ]);
+                return;
+            }
+
+            // Check if user has push notifications enabled
+            if (!$receiver->push_notifications && !$receiver->notifications_enabled) {
+                return;
+            }
+
+            // Format notification
+            $title = "Counter Offer from {$sender->name}";
+            $body = "₹{$counterOffer->amount} counter offer on {$item->title}";
+
+            if ($counterOffer->message) {
+                $messagePreview = substr($counterOffer->message, 0, 50);
+                if (strlen($counterOffer->message) > 50) {
+                    $messagePreview .= "...";
+                }
+                $body .= " - {$messagePreview}";
+            }
+
+            // Prepare FCM data
+            $notificationData = [
+                'title' => $title,
+                'body' => $body,
+                'sound' => 'default'
+            ];
+
+            $data = [
+                'type' => 'counter_offer_received',
+                'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                'offer_id' => (string) $counterOffer->id,
+                'item_id' => (string) $item->id,
+                'item_title' => $item->title,
+                'sender_id' => (string) $sender->id,
+                'sender_name' => $sender->name,
+                'amount' => (string) $counterOffer->amount,
+                'offer_type' => 'counter',
+                'parent_offer_id' => (string) $counterOffer->parent_offer_id,
+                'timestamp' => now()->toISOString(),
+            ];
+
+            // Add sender profile image if available
+            if ($sender->profile_image) {
+                $data['sender_image'] = $sender->profile_image;
+            }
+
+            // Add item image if available
+            if ($item->images && is_array($item->images) && count($item->images) > 0) {
+                $data['item_image'] = $item->images[0];
+            }
+
+            // Send FCM notification
+            $result = $this->fcmService->sendToDevice(
+                $receiver->fcm_token,
+                $notificationData,
+                $data
+            );
+
+            if ($result['success']) {
+                Log::info('Counter offer notification sent successfully', [
+                    'receiver_id' => $receiver->id,
+                    'offer_id' => $counterOffer->id,
+                    'fcm_message_id' => $result['message_id']
+                ]);
+
+                // Save notification to database
+                UserNotification::create([
+                    'user_id' => $receiver->id,
+                    'title' => $title,
+                    'body' => $body,
+                    'type' => 'offer',
+                    'data' => json_encode($data),
+                    'is_read' => false,
+                ]);
+            } else {
+                Log::error('Failed to send counter offer notification', [
+                    'receiver_id' => $receiver->id,
+                    'error' => $result['error'] ?? 'Unknown error'
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Counter offer notification failed', [
+                'offer_id' => $counterOffer->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    private function sendOfferRejectedNotification(Offer $offer, $reason = null)
+    {
+        try {
+            $sender = User::find($offer->sender_id);
+            $rejecter = $offer->receiver;
+
+            if (!$sender || !$sender->fcm_token) {
+                Log::info('Sender has no FCM token for rejection notification', [
+                    'sender_id' => $offer->sender_id
+                ]);
+                return;
+            }
+
+            // Check notification preferences
+            $preferences = UserNotificationPreference::where('user_id', $sender->id)->first();
+            if ($preferences && !$preferences->offer_notifications) {
+                Log::info('Offer notifications disabled for sender', [
+                    'sender_id' => $sender->id
+                ]);
+                return;
+            }
+
+            // Check if user has push notifications enabled
+            if (!$sender->push_notifications && !$sender->notifications_enabled) {
+                return;
+            }
+
+            // Format notification
+            $offerType = $offer->offer_type === 'counter' ? 'counter offer' : 'offer';
+            $title = "Offer Declined";
+            $body = "{$rejecter->name} declined your ₹{$offer->amount} {$offerType} on {$offer->item->title}";
+
+            // Add reason if provided
+            if ($reason && strlen(trim($reason)) > 0) {
+                $reasonPreview = substr($reason, 0, 40);
+                if (strlen($reason) > 40) {
+                    $reasonPreview .= "...";
+                }
+                $body .= " - Reason: {$reasonPreview}";
+            }
+
+            // Prepare FCM data
+            $notificationData = [
+                'title' => $title,
+                'body' => $body,
+                'sound' => 'default'
+            ];
+
+            $data = [
+                'type' => 'offer_rejected',
+                'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                'offer_id' => (string) $offer->id,
+                'item_id' => (string) $offer->item_id,
+                'item_title' => $offer->item->title,
+                'rejecter_id' => (string) $rejecter->id,
+                'rejecter_name' => $rejecter->name,
+                'amount' => (string) $offer->amount,
+                'offer_type' => $offer->offer_type,
+                'timestamp' => now()->toISOString(),
+            ];
+
+            // Add rejection reason if available
+            if ($reason) {
+                $data['rejection_reason'] = $reason;
+            }
+
+            // Add rejecter profile image if available
+            if ($rejecter->profile_image) {
+                $data['rejecter_image'] = $rejecter->profile_image;
+            }
+
+            // Add item image if available
+            if ($offer->item->images && is_array($offer->item->images) && count($offer->item->images) > 0) {
+                $data['item_image'] = $offer->item->images[0];
+            }
+
+            // Send FCM notification
+            $result = $this->fcmService->sendToDevice(
+                $sender->fcm_token,
+                $notificationData,
+                $data
+            );
+
+            if ($result['success']) {
+                Log::info('Offer rejection notification sent successfully', [
+                    'sender_id' => $sender->id,
+                    'offer_id' => $offer->id,
+                    'fcm_message_id' => $result['message_id']
+                ]);
+
+                // Save notification to database
+                UserNotification::create([
+                    'user_id' => $sender->id,
+                    'title' => $title,
+                    'body' => $body,
+                    'type' => 'offer',
+                    'data' => json_encode($data),
+                    'is_read' => false,
+                ]);
+            } else {
+                Log::error('Failed to send offer rejection notification', [
+                    'sender_id' => $sender->id,
+                    'error' => $result['error'] ?? 'Unknown error'
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Offer rejection notification failed', [
+                'offer_id' => $offer->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Send notification when offer is cancelled by sender
+     */
+    private function sendOfferCancelledNotification(Offer $offer)
+    {
+        try {
+            $receiver = User::find($offer->receiver_id);
+            $canceller = $offer->sender;
+
+            if (!$receiver || !$receiver->fcm_token) {
+                Log::info('Receiver has no FCM token for cancellation notification', [
+                    'receiver_id' => $offer->receiver_id
+                ]);
+                return;
+            }
+
+            // Check notification preferences
+            $preferences = UserNotificationPreference::where('user_id', $receiver->id)->first();
+            if ($preferences && !$preferences->offer_notifications) {
+                Log::info('Offer notifications disabled for receiver', [
+                    'receiver_id' => $receiver->id
+                ]);
+                return;
+            }
+
+            // Check if user has push notifications enabled
+            if (!$receiver->push_notifications && !$receiver->notifications_enabled) {
+                return;
+            }
+
+            // Format notification
+            $offerType = $offer->offer_type === 'counter' ? 'counter offer' : 'offer';
+            $title = "Offer Cancelled";
+            $body = "{$canceller->name} cancelled their ₹{$offer->amount} {$offerType} on {$offer->item->title}";
+
+            // Prepare FCM data
+            $notificationData = [
+                'title' => $title,
+                'body' => $body,
+                'sound' => 'default'
+            ];
+
+            $data = [
+                'type' => 'offer_cancelled',
+                'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                'offer_id' => (string) $offer->id,
+                'item_id' => (string) $offer->item_id,
+                'item_title' => $offer->item->title,
+                'canceller_id' => (string) $canceller->id,
+                'canceller_name' => $canceller->name,
+                'amount' => (string) $offer->amount,
+                'offer_type' => $offer->offer_type,
+                'timestamp' => now()->toISOString(),
+            ];
+
+            // Add canceller profile image if available
+            if ($canceller->profile_image) {
+                $data['canceller_image'] = $canceller->profile_image;
+            }
+
+            // Add item image if available
+            if ($offer->item->images && is_array($offer->item->images) && count($offer->item->images) > 0) {
+                $data['item_image'] = $offer->item->images[0];
+            }
+
+            // Send FCM notification
+            $result = $this->fcmService->sendToDevice(
+                $receiver->fcm_token,
+                $notificationData,
+                $data
+            );
+
+            if ($result['success']) {
+                Log::info('Offer cancellation notification sent successfully', [
+                    'receiver_id' => $receiver->id,
+                    'offer_id' => $offer->id,
+                    'fcm_message_id' => $result['message_id']
+                ]);
+
+                // Save notification to database
+                UserNotification::create([
+                    'user_id' => $receiver->id,
+                    'title' => $title,
+                    'body' => $body,
+                    'type' => 'offer',
+                    'data' => json_encode($data),
+                    'is_read' => false,
+                ]);
+            } else {
+                Log::error('Failed to send offer cancellation notification', [
+                    'receiver_id' => $receiver->id,
+                    'error' => $result['error'] ?? 'Unknown error'
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Offer cancellation notification failed', [
+                'offer_id' => $offer->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Send notification to counter offer sender when original offer is cancelled
+     */
+    private function sendCounterOfferCancelledNotification(array $counterOfferData, Offer $originalOffer)
+    {
+        try {
+            $counterOfferSender = User::find($counterOfferData['sender_id']);
+
+            if (!$counterOfferSender || !$counterOfferSender->fcm_token) {
+                Log::info('Counter offer sender has no FCM token', [
+                    'sender_id' => $counterOfferData['sender_id']
+                ]);
+                return;
+            }
+
+            // Check notification preferences
+            $preferences = UserNotificationPreference::where('user_id', $counterOfferSender->id)->first();
+            if ($preferences && !$preferences->offer_notifications) {
+                return;
+            }
+
+            // Check if user has push notifications enabled
+            if (!$counterOfferSender->push_notifications && !$counterOfferSender->notifications_enabled) {
+                return;
+            }
+
+            $originalSender = $originalOffer->sender;
+            $itemTitle = $counterOfferData['item']['title'] ?? 'item';
+
+            // Format notification
+            $title = "Offer Cancelled";
+            $body = "{$originalSender->name} cancelled their original offer on {$itemTitle}. Your counter offer has been automatically cancelled.";
+
+            // Prepare FCM data
+            $notificationData = [
+                'title' => $title,
+                'body' => $body,
+                'sound' => 'default'
+            ];
+
+            $data = [
+                'type' => 'counter_offer_cancelled',
+                'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                'offer_id' => (string) $counterOfferData['id'],
+                'original_offer_id' => (string) $originalOffer->id,
+                'item_id' => (string) $counterOfferData['item_id'],
+                'item_title' => $itemTitle,
+                'canceller_id' => (string) $originalSender->id,
+                'canceller_name' => $originalSender->name,
+                'timestamp' => now()->toISOString(),
+            ];
+
+            // Add item image if available
+            if (
+                isset($counterOfferData['item']['images']) &&
+                is_array($counterOfferData['item']['images']) &&
+                count($counterOfferData['item']['images']) > 0
+            ) {
+                $data['item_image'] = $counterOfferData['item']['images'][0];
+            }
+
+            // Send FCM notification
+            $result = $this->fcmService->sendToDevice(
+                $counterOfferSender->fcm_token,
+                $notificationData,
+                $data
+            );
+
+            if ($result['success']) {
+                Log::info('Counter offer cancellation notification sent successfully', [
+                    'sender_id' => $counterOfferSender->id,
+                    'counter_offer_id' => $counterOfferData['id'],
+                    'fcm_message_id' => $result['message_id']
+                ]);
+
+                // Save notification to database
+                UserNotification::create([
+                    'user_id' => $counterOfferSender->id,
+                    'title' => $title,
+                    'body' => $body,
+                    'type' => 'offer',
+                    'data' => json_encode($data),
+                    'is_read' => false,
+                ]);
+            } else {
+                Log::error('Failed to send counter offer cancellation notification', [
+                    'sender_id' => $counterOfferSender->id,
+                    'error' => $result['error'] ?? 'Unknown error'
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Counter offer cancellation notification failed', [
+                'counter_offer_id' => $counterOfferData['id'] ?? 'unknown',
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
         }
     }
 }
