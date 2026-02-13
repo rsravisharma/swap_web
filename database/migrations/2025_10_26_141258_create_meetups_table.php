@@ -22,7 +22,7 @@ return new class extends Migration
             $table->decimal('original_price', 10, 2);
 
             $table->string('meetup_location', 500);
-            $table->enum('meetup_location_type', ['public', 'campus', 'doorstep']);
+            $table->enum('meetup_location_type', ['public', 'campus', 'doorstep', 'item_location'])->default('item_location');
             $table->json('meetup_location_details')->nullable();
 
             $table->dateTime('preferred_meetup_time');

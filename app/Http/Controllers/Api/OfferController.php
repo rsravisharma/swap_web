@@ -12,6 +12,7 @@ use App\Models\Item;
 use App\Models\PaymentMethod;
 use App\Models\DeliveryOption;
 use App\Models\User;
+use App\Models\Meetup;
 use App\Models\UserNotification;
 use App\Models\UserNotificationPreference;
 use App\Services\FCMService;
@@ -344,63 +345,104 @@ class OfferController extends Controller
     {
         try {
             $user = Auth::user();
-            $offer = Offer::with(['parentOffer', 'counterOffers', 'item', 'sender'])
-                ->where('id', $offerId)
-                ->where('receiver_id', $user->id)
-                ->where('status', 'pending')
-                ->first();
+            $offer = Offer::with('item')->find($offerId);
 
             if (!$offer) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Offer not found or cannot be accepted'
+                    'message' => 'Offer not found'
                 ], 404);
+            }
+
+            // Authorization check
+            if ($offer->receiver_id !== $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only the offer receiver can accept'
+                ], 403);
+            }
+
+            if ($offer->status !== 'pending') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Offer is not pending'
+                ], 400);
             }
 
             DB::beginTransaction();
 
-            try {
-                $offer->update([
-                    'status' => 'accepted',
-                    'accepted_at' => now()
+            // Accept the offer
+            $offer->update([
+                'status' => 'accepted',
+                'accepted_at' => now(),
+            ]);
+
+            // Reject all other offers for this item
+            Offer::where('item_id', $offer->item_id)
+                ->where('id', '!=', $offer->id)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'rejected',
+                    'rejected_at' => now(),
+                    'rejection_reason' => 'Another offer was accepted'
                 ]);
 
-                $rootOffer = $offer->isCounterOffer() ? $offer->parentOffer : $offer;
+            // 🔥 NEW: Auto-create meetup with item location
+            $sellerId = $offer->item->user_id;
+            $buyerId = $offer->sender_id === $sellerId ? $offer->receiver_id : $offer->sender_id;
 
-                if ($rootOffer) {
-                    Offer::where('item_id', $offer->item_id)
-                        ->where('id', '!=', $offer->id)
-                        ->where(function ($query) use ($rootOffer) {
-                            $query->where('id', $rootOffer->id)
-                                ->orWhere('parent_offer_id', $rootOffer->id);
-                        })
-                        ->where('status', 'pending')
-                        ->update([
-                            'status' => 'rejected',
-                            'rejected_at' => now(),
-                            'rejection_reason' => 'Another offer was accepted'
-                        ]);
-                }
+            $meetup = Meetup::create([
+                'buyer_id' => $buyerId,
+                'seller_id' => $sellerId,
+                'item_id' => $offer->item_id,
+                'offer_id' => $offer->id,
+                'agreed_price' => $offer->amount,
+                'original_price' => $offer->item->price,
+                'meetup_location' => $offer->item->location,
+                'meetup_location_type' => 'item_location', 
+                'meetup_location_details' => null,
+                'preferred_meetup_time' => now()->addDay(), 
+                'alternative_meetup_time' => null,
+                'payment_method' => 'cash', 
+                'buyer_notes' => null,
+                'acknowledged_safety' => true,
+                'status' => 'meetup_scheduled', 
+                'buyer_confirmed' => false,
+                'seller_confirmed' => false,
+            ]);
 
-                // 🔥 SEND NOTIFICATION TO SENDER
-                $this->sendOfferAcceptedNotification($offer);
+            $offer->item->update(['status' => 'reserved']);
 
-                DB::commit();
+            DB::commit();
 
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Offer accepted successfully',
-                    'data' => $offer->fresh(['item', 'sender', 'receiver'])
-                ]);
-            } catch (\Exception $e) {
-                DB::rollback();
-                throw $e;
-            }
+            Log::info('✅ Offer accepted and meetup auto-created', [
+                'offer_id' => $offer->id,
+                'meetup_id' => $meetup->id,
+                'item_location' => $offer->item->location,
+            ]);
+
+            $offer->load(['item.images', 'item.primaryImage', 'sender', 'receiver']);
+            $meetup->load(['buyer', 'seller', 'item.images']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Offer accepted successfully. Meetup scheduled at item location.',
+                'data' => [
+                    'offer' => $offer,
+                    'meetup' => $meetup,
+                ],
+            ]);
         } catch (\Exception $e) {
+            DB::rollback();
+            Log::error('❌ Failed to accept offer', [
+                'error' => $e->getMessage(),
+                'offer_id' => $offerId,
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to accept offer',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
