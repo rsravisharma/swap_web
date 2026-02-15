@@ -132,56 +132,55 @@ class OfferController extends Controller
                     $query->where('sender_id', $user->id)
                         ->orWhere('receiver_id', $user->id);
                 })
-                ->with('meetup') // 🔥 Load meetup to check completion status
+                ->with('meetup') // 🔥 Load meetup relationship
                 ->get();
+
+            // 🔥 Calculate completed count
+            $completedCount = $allOffers->filter(function ($offer) {
+                if ($offer->status !== 'accepted') {
+                    return false;
+                }
+
+                $meetup = $offer->meetup;
+                if (!$meetup) {
+                    return false;
+                }
+
+                // Count as completed if status is completed OR both parties confirmed
+                return $meetup->status === 'completed' ||
+                    ($meetup->buyer_confirmed && $meetup->seller_confirmed);
+            })->count();
+
+            // 🔥 Calculate accepted count (excluding completed)
+            $acceptedCount = $allOffers->filter(function ($offer) {
+                if ($offer->status !== 'accepted') {
+                    return false;
+                }
+
+                $meetup = $offer->meetup;
+                if (!$meetup) {
+                    return true; // Include if no meetup yet
+                }
+
+                // Exclude if completed or both confirmed
+                $isCompleted = $meetup->status === 'completed' ||
+                    ($meetup->buyer_confirmed && $meetup->seller_confirmed);
+
+                return !$isCompleted;
+            })->count();
 
             $statistics = [
                 'total' => $allOffers->count(),
-
                 'received' => $allOffers->where('receiver_id', $user->id)
                     ->where('status', 'pending')
                     ->count(),
-
                 'sent' => $allOffers->where('sender_id', $user->id)
                     ->where('status', 'pending')
                     ->count(),
-
-                // 🔥 UPDATED: Exclude completed from accepted count
-                'accepted' => $allOffers->filter(function ($offer) {
-                    if ($offer->status !== 'accepted') {
-                        return false;
-                    }
-
-                    $meetup = $offer->meetup;
-                    if (!$meetup) {
-                        return true; // Include if no meetup yet
-                    }
-
-                    // Exclude if completed or both confirmed
-                    $isCompleted = $meetup->status === 'completed' ||
-                        ($meetup->buyer_confirmed && $meetup->seller_confirmed);
-
-                    return !$isCompleted;
-                })->count(),
-
-                // 🔥 NEW: Completed count
-                'completed' => $allOffers->filter(function ($offer) {
-                    if ($offer->status !== 'accepted') {
-                        return false;
-                    }
-
-                    $meetup = $offer->meetup;
-                    if (!$meetup) {
-                        return false;
-                    }
-
-                    // Count as completed if status is completed OR both parties confirmed
-                    return $meetup->status === 'completed' ||
-                        ($meetup->buyer_confirmed && $meetup->seller_confirmed);
-                })->count(),
-
+                'accepted' => $acceptedCount, 
+                'completed' => $completedCount, 
+                'rejected' => $allOffers->whereIn('status', ['rejected', 'cancelled'])->count(),
                 'inactive' => $allOffers->whereIn('status', ['rejected', 'cancelled'])->count(),
-
                 'pending' => $allOffers->where('status', 'pending')->count(),
             ];
 
