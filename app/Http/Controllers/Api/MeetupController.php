@@ -717,6 +717,20 @@ class MeetupController extends Controller
                 return response()->json(['success' => false, 'message' => 'Meetup cannot be confirmed in current status'], 400);
             }
 
+            if ($request->role === 'buyer' && $meetup->buyer_confirmed) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You have already confirmed this transaction',
+                ], 400);
+            }
+
+            if ($request->role === 'seller' && $meetup->seller_confirmed) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You have already confirmed this transaction',
+                ], 400);
+            }
+
             DB::beginTransaction();
 
             $field       = $request->role === 'buyer' ? 'buyer_confirmed' : 'seller_confirmed';
@@ -728,24 +742,26 @@ class MeetupController extends Controller
             ]);
 
             // Check if BOTH parties confirmed
-            $bothConfirmed = $meetup->fresh()->buyer_confirmed && $meetup->fresh()->seller_confirmed;
+            $bothConfirmed = $meetup->buyer_confirmed && $meetup->seller_confirmed;
+            $coinsAwarded = [];
 
             if ($bothConfirmed) {
+                // 🔥 AUTO-COMPLETE the meetup
                 $meetup->update([
-                    'status'       => 'completed',
+                    'status' => 'completed',
                     'completed_at' => now(),
                 ]);
 
                 // Mark item as sold
                 $meetup->item->update([
-                    'status'  => 'sold',
+                    'status' => 'sold',
                     'is_sold' => true,
                     'sold_at' => now(),
                 ]);
 
                 $saleAmount = (float) $meetup->agreed_price;
 
-                // ✅ CREATE TRANSACTION RECORD (Source of Truth)
+                // 🔥 CREATE TRANSACTION RECORD (Source of Truth)
                 $transaction = Transaction::create([
                     'buyer_id' => $meetup->buyer_id,
                     'seller_id' => $meetup->seller_id,
@@ -755,14 +771,14 @@ class MeetupController extends Controller
                     'completed_at' => now(),
                 ]);
 
-                Log::info('💰 Transaction record created', [
+                Log::info('Transaction record created', [
                     'transaction_id' => $transaction->id,
                     'amount' => $saleAmount,
                 ]);
 
-                // ✅ UPDATE USER CACHED STATS (For Performance)
+                // 🔥 AWARD COINS TO BOTH PARTIES
                 try {
-                    // Update seller stats
+                    // Award seller coins
                     $seller = User::find($meetup->seller_id);
                     if ($seller) {
                         DB::table('users')
@@ -777,7 +793,7 @@ class MeetupController extends Controller
 
                         $seller->refresh();
 
-                        // Create coin transaction
+                        // Create coin transaction for seller
                         CoinTransaction::create([
                             'user_id' => $seller->id,
                             'amount' => 5,
@@ -786,9 +802,11 @@ class MeetupController extends Controller
                             'item_id' => $meetup->item_id,
                             'balance_after' => $seller->coins,
                         ]);
+
+                        $coinsAwarded['seller'] = 5;
                     }
 
-                    // Update buyer stats
+                    // Award buyer coins
                     $buyer = User::find($meetup->buyer_id);
                     if ($buyer) {
                         DB::table('users')
@@ -802,7 +820,7 @@ class MeetupController extends Controller
 
                         $buyer->refresh();
 
-                        // Create coin transaction
+                        // Create coin transaction for buyer
                         CoinTransaction::create([
                             'user_id' => $buyer->id,
                             'amount' => 2,
@@ -811,28 +829,57 @@ class MeetupController extends Controller
                             'item_id' => $meetup->item_id,
                             'balance_after' => $buyer->coins,
                         ]);
+
+                        $coinsAwarded['buyer'] = 2;
                     }
 
-                    Log::info('🎉 Transaction completed and all stats updated', [
+                    Log::info('Transaction completed and all stats updated', [
                         'transaction_id' => $transaction->id,
                         'meetup_id' => $meetup->id,
                         'buyer_id' => $meetup->buyer_id,
                         'seller_id' => $meetup->seller_id,
                         'sale_amount' => $saleAmount,
+                        'coins_awarded' => $coinsAwarded,
                     ]);
                 } catch (\Exception $e) {
-                    Log::error('⚠️ Failed to update user stats', [
-                        'transaction_id' => $transaction->id,
+                    Log::error('Failed to update user stats', [
+                        'transaction_id' => $transaction->id ?? null,
                         'error' => $e->getMessage(),
                     ]);
                 }
             } else {
-                Log::info('⏳ Waiting for other party confirmation', [
-                    'meetup_id'        => $meetup->id,
-                    'confirmed_by'     => $request->role,
-                    'buyer_confirmed'  => $meetup->buyer_confirmed,
+                // Only one party confirmed so far
+                Log::info('Waiting for other party confirmation', [
+                    'meetup_id' => $meetup->id,
+                    'confirmed_by' => $request->role,
+                    'buyer_confirmed' => $meetup->buyer_confirmed,
                     'seller_confirmed' => $meetup->seller_confirmed,
                 ]);
+
+                // 🔥 Award coins only to the party who just confirmed
+                $currentUser = User::find($user->id);
+                if ($currentUser) {
+                    $coinsToAward = $request->role === 'seller' ? 5 : 2;
+
+                    DB::table('users')
+                        ->where('id', $currentUser->id)
+                        ->update([
+                            'coins' => DB::raw("coins + {$coinsToAward}"),
+                        ]);
+
+                    $currentUser->refresh();
+
+                    CoinTransaction::create([
+                        'user_id' => $currentUser->id,
+                        'amount' => $coinsToAward,
+                        'type' => $request->role === 'seller' ? 'sale_confirmed' : 'purchase_confirmed',
+                        'description' => 'Reward for confirming ' . ($request->role === 'seller' ? 'sale' : 'purchase') . ' of "' . $meetup->item->title . '"',
+                        'item_id' => $meetup->item_id,
+                        'balance_after' => $currentUser->coins,
+                    ]);
+
+                    $coinsAwarded['current_user'] = $coinsToAward;
+                }
             }
 
             DB::commit();
@@ -840,25 +887,25 @@ class MeetupController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => $bothConfirmed
-                    ? 'Transaction completed! You earned coins! 🎉'
-                    : 'Confirmation recorded. Waiting for other party.',
-                'data'    => [
-                    'meetup'         => $meetup->fresh(),
+                    ? '🎉 Transaction completed! Both parties confirmed.'
+                    : '✅ Confirmation recorded. Waiting for other party.',
+                'data' => [
+                    'meetup' => $meetup->fresh(['buyer', 'seller', 'item']),
                     'both_confirmed' => $bothConfirmed,
-                    'coins_awarded'  => $bothConfirmed ? [
-                        'seller' => 5,
-                        'buyer' => 2,
-                    ] : null,
+                    'coins_awarded' => $coinsAwarded,
+                    'is_completed' => $bothConfirmed,
                 ],
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('❌ Failed to confirm meetup', ['error' => $e->getMessage()]);
+            Log::error('Failed to confirm meetup', [
+                'error' => $e->getMessage(),
+            ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to confirm meetup',
-                'error'   => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }

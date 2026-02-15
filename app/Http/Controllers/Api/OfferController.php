@@ -57,7 +57,27 @@ class OfferController extends Controller
                     break;
 
                 case 'accepted':
-                    $offersQuery->where('status', 'accepted');
+                    $offersQuery->where('status', 'accepted')
+                        // 🔥 NEW: Exclude completed meetups from accepted tab
+                        ->whereDoesntHave('meetup', function ($q) {
+                            $q->where('status', 'completed')
+                                ->orWhere(function ($subQ) {
+                                    $subQ->where('buyer_confirmed', true)
+                                        ->where('seller_confirmed', true);
+                                });
+                        });
+                    break;
+
+                // 🔥 NEW: Completed tab
+                case 'completed':
+                    $offersQuery->where('status', 'accepted')
+                        ->whereHas('meetup', function ($q) {
+                            $q->where('status', 'completed')
+                                ->orWhere(function ($subQ) {
+                                    $subQ->where('buyer_confirmed', true)
+                                        ->where('seller_confirmed', true);
+                                });
+                        });
                     break;
 
                 case 'inactive':
@@ -75,7 +95,7 @@ class OfferController extends Controller
                     'receiver',
                     'parentOffer.sender',
                     'parentOffer.receiver',
-                    'meetup',
+                    'meetup', // 🔥 Make sure meetup is loaded
                 ])
                 ->orderBy('created_at', 'desc')
                 ->get();
@@ -102,6 +122,7 @@ class OfferController extends Controller
     }
 
 
+
     public function getOfferStatistics(): JsonResponse
     {
         try {
@@ -111,18 +132,56 @@ class OfferController extends Controller
                     $query->where('sender_id', $user->id)
                         ->orWhere('receiver_id', $user->id);
                 })
+                ->with('meetup') // 🔥 Load meetup to check completion status
                 ->get();
 
             $statistics = [
                 'total' => $allOffers->count(),
+
                 'received' => $allOffers->where('receiver_id', $user->id)
                     ->where('status', 'pending')
                     ->count(),
+
                 'sent' => $allOffers->where('sender_id', $user->id)
                     ->where('status', 'pending')
                     ->count(),
-                'accepted' => $allOffers->where('status', 'accepted')->count(),
+
+                // 🔥 UPDATED: Exclude completed from accepted count
+                'accepted' => $allOffers->filter(function ($offer) {
+                    if ($offer->status !== 'accepted') {
+                        return false;
+                    }
+
+                    $meetup = $offer->meetup;
+                    if (!$meetup) {
+                        return true; // Include if no meetup yet
+                    }
+
+                    // Exclude if completed or both confirmed
+                    $isCompleted = $meetup->status === 'completed' ||
+                        ($meetup->buyer_confirmed && $meetup->seller_confirmed);
+
+                    return !$isCompleted;
+                })->count(),
+
+                // 🔥 NEW: Completed count
+                'completed' => $allOffers->filter(function ($offer) {
+                    if ($offer->status !== 'accepted') {
+                        return false;
+                    }
+
+                    $meetup = $offer->meetup;
+                    if (!$meetup) {
+                        return false;
+                    }
+
+                    // Count as completed if status is completed OR both parties confirmed
+                    return $meetup->status === 'completed' ||
+                        ($meetup->buyer_confirmed && $meetup->seller_confirmed);
+                })->count(),
+
                 'inactive' => $allOffers->whereIn('status', ['rejected', 'cancelled'])->count(),
+
                 'pending' => $allOffers->where('status', 'pending')->count(),
             ];
 
@@ -138,6 +197,7 @@ class OfferController extends Controller
             ], 500);
         }
     }
+
 
     public function getOfferChain(string $offerId): JsonResponse
     {
@@ -399,14 +459,14 @@ class OfferController extends Controller
                 'agreed_price' => $offer->amount,
                 'original_price' => $offer->item->price,
                 'meetup_location' => $offer->item->location,
-                'meetup_location_type' => 'item_location', 
+                'meetup_location_type' => 'item_location',
                 'meetup_location_details' => null,
-                'preferred_meetup_time' => now()->addDay(), 
+                'preferred_meetup_time' => now()->addDay(),
                 'alternative_meetup_time' => null,
-                'payment_method' => 'cash', 
+                'payment_method' => 'cash',
                 'buyer_notes' => null,
                 'acknowledged_safety' => true,
-                'status' => 'meetup_scheduled', 
+                'status' => 'meetup_scheduled',
                 'buyer_confirmed' => false,
                 'seller_confirmed' => false,
             ]);
