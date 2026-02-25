@@ -19,12 +19,22 @@ class HomeController extends Controller
     public function popular(Request $request): JsonResponse
     {
         $limit = $request->get('limit', 10);
-        
-        $items = Cache::remember("home_popular_items_{$limit}", 300, function() use ($limit) {
+
+        $items = Cache::remember("home_popular_items_{$limit}", 300, function () use ($limit) {
             return Item::active()
                 ->with(['user:id,name,profile_image', 'primaryImage'])
-                ->select(['id', 'user_id', 'title', 'description', 'price', 'condition', 
-                         'category_name', 'category_id', 'location', 'created_at'])
+                ->select([
+                    'id',
+                    'user_id',
+                    'title',
+                    'description',
+                    'price',
+                    'condition',
+                    'category_name',
+                    'category_id',
+                    'location',
+                    'created_at'
+                ])
                 ->withCount(['favorites', 'views']) // Assuming you have these relationships
                 ->orderByDesc('favorites_count')
                 ->orderByDesc('views_count')
@@ -47,21 +57,38 @@ class HomeController extends Controller
     public function recent(Request $request): JsonResponse
     {
         $limit = $request->get('limit', 10);
-        
-        $items = Cache::remember("home_recent_items_{$limit}", 300, function() use ($limit) {
+        $page  = $request->get('page', 1);
+
+        $items = Cache::remember("home_recent_items_{$limit}_page_{$page}", 300, function () use ($limit) {
             return Item::active()
                 ->with(['user:id,name,profile_image', 'primaryImage'])
-                ->select(['id', 'user_id', 'title', 'description', 'price', 'condition', 
-                         'category_name', 'category_id', 'location', 'created_at'])
+                ->select([
+                    'id',
+                    'user_id',
+                    'title',
+                    'description',
+                    'price',
+                    'condition',
+                    'category_name',
+                    'category_id',
+                    'location',
+                    'created_at'
+                ])
                 ->latest()
-                ->limit($limit)
-                ->get();
+                ->paginate($limit);
         });
 
         return response()->json([
             'success' => true,
             'data' => ItemResource::collection($items),
-            'message' => 'Recent items retrieved successfully'
+            'message' => 'Recent items retrieved successfully',
+            'pagination'  => [
+                'current_page' => $items->currentPage(),
+                'last_page'    => $items->lastPage(),
+                'per_page'     => $items->perPage(),
+                'total'        => $items->total(),
+                'has_more'     => $items->hasMorePages(),
+            ],
         ]);
     }
 
@@ -71,12 +98,22 @@ class HomeController extends Controller
     public function trending(Request $request): JsonResponse
     {
         $limit = $request->get('limit', 10);
-        
-        $items = Cache::remember("home_trending_items_{$limit}", 300, function() use ($limit) {
+
+        $items = Cache::remember("home_trending_items_{$limit}", 300, function () use ($limit) {
             return Item::active()
                 ->with(['user:id,name,profile_image', 'primaryImage'])
-                ->select(['id', 'user_id', 'title', 'description', 'price', 'condition', 
-                         'category_name', 'category_id', 'location', 'created_at'])
+                ->select([
+                    'id',
+                    'user_id',
+                    'title',
+                    'description',
+                    'price',
+                    'condition',
+                    'category_name',
+                    'category_id',
+                    'location',
+                    'created_at'
+                ])
                 ->where('created_at', '>=', now()->subDays(7)) // Last 7 days
                 ->withCount(['favorites', 'views'])
                 ->orderByDesc('views_count')
@@ -99,14 +136,25 @@ class HomeController extends Controller
     public function featured(Request $request): JsonResponse
     {
         $limit = $request->get('limit', 6);
-        
-        $items = Cache::remember("home_featured_items_{$limit}", 600, function() use ($limit) {
+
+        $items = Cache::remember("home_featured_items_{$limit}", 600, function () use ($limit) {
             return Item::active()
                 ->promoted()
                 ->with(['user:id,name,profile_image', 'primaryImage'])
-                ->select(['id', 'user_id', 'title', 'description', 'price', 'condition', 
-                         'category_name', 'category_id', 'location', 'is_promoted', 
-                         'promoted_until', 'created_at'])
+                ->select([
+                    'id',
+                    'user_id',
+                    'title',
+                    'description',
+                    'price',
+                    'condition',
+                    'category_name',
+                    'category_id',
+                    'location',
+                    'is_promoted',
+                    'promoted_until',
+                    'created_at'
+                ])
                 ->orderByDesc('promoted_until')
                 ->orderByDesc('created_at')
                 ->limit($limit)
@@ -125,13 +173,13 @@ class HomeController extends Controller
      */
     public function categoryStats(): JsonResponse
     {
-        $stats = Cache::remember('category_stats', 1800, function() {
+        $stats = Cache::remember('category_stats', 1800, function () {
             return Category::active()
                 ->withCount('items')
                 ->orderBy('sort_order')
                 ->orderBy('name')
                 ->get(['id', 'name', 'slug', 'icon', 'items_count'])
-                ->map(function($category) {
+                ->map(function ($category) {
                     return [
                         'id' => $category->id,
                         'name' => $category->name,
