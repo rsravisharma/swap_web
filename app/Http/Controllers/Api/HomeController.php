@@ -9,7 +9,6 @@ use App\Models\Category;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 
 class HomeController extends Controller
 {
@@ -19,8 +18,9 @@ class HomeController extends Controller
     public function popular(Request $request): JsonResponse
     {
         $limit = $request->get('limit', 10);
+        $page  = $request->get('page', 1);
 
-        $items = Cache::remember("home_popular_items_{$limit}", 300, function () use ($limit) {
+        $items = Cache::remember("home_popular_items_{$limit}_page_{$page}", 300, function () use ($limit) {
             return Item::active()
                 ->with(['user:id,name,profile_image', 'primaryImage'])
                 ->select([
@@ -33,21 +33,27 @@ class HomeController extends Controller
                     'category_name',
                     'category_id',
                     'location',
-                    'created_at'
+                    'created_at',
                 ])
-                ->withCount(['favorites', 'views']) // Assuming you have these relationships
+                ->withCount(['favorites', 'views'])
                 ->orderByDesc('favorites_count')
                 ->orderByDesc('views_count')
                 ->orderByDesc('is_promoted')
                 ->orderByDesc('created_at')
-                ->limit($limit)
-                ->get();
+                ->paginate($limit);
         });
 
         return response()->json([
-            'success' => true,
-            'data' => ItemResource::collection($items),
-            'message' => 'Popular items retrieved successfully'
+            'success'    => true,
+            'data'       => ItemResource::collection($items),
+            'message'    => 'Popular items retrieved successfully',
+            'pagination' => [
+                'current_page' => $items->currentPage(),
+                'last_page'    => $items->lastPage(),
+                'per_page'     => $items->perPage(),
+                'total'        => $items->total(),
+                'has_more'     => $items->hasMorePages(),
+            ],
         ]);
     }
 
@@ -72,17 +78,17 @@ class HomeController extends Controller
                     'category_name',
                     'category_id',
                     'location',
-                    'created_at'
+                    'created_at',
                 ])
                 ->latest()
                 ->paginate($limit);
         });
 
         return response()->json([
-            'success' => true,
-            'data' => ItemResource::collection($items),
-            'message' => 'Recent items retrieved successfully',
-            'pagination'  => [
+            'success'    => true,
+            'data'       => ItemResource::collection($items),
+            'message'    => 'Recent items retrieved successfully',
+            'pagination' => [
                 'current_page' => $items->currentPage(),
                 'last_page'    => $items->lastPage(),
                 'per_page'     => $items->perPage(),
@@ -98,8 +104,9 @@ class HomeController extends Controller
     public function trending(Request $request): JsonResponse
     {
         $limit = $request->get('limit', 10);
+        $page  = $request->get('page', 1);
 
-        $items = Cache::remember("home_trending_items_{$limit}", 300, function () use ($limit) {
+        $items = Cache::remember("home_trending_items_{$limit}_page_{$page}", 300, function () use ($limit) {
             return Item::active()
                 ->with(['user:id,name,profile_image', 'primaryImage'])
                 ->select([
@@ -112,32 +119,40 @@ class HomeController extends Controller
                     'category_name',
                     'category_id',
                     'location',
-                    'created_at'
+                    'created_at',
                 ])
-                ->where('created_at', '>=', now()->subDays(7)) // Last 7 days
+                ->where('created_at', '>=', now()->subDays(7))
                 ->withCount(['favorites', 'views'])
                 ->orderByDesc('views_count')
                 ->orderByDesc('favorites_count')
                 ->orderByDesc('is_promoted')
-                ->limit($limit)
-                ->get();
+                ->paginate($limit);
         });
 
         return response()->json([
-            'success' => true,
-            'data' => ItemResource::collection($items),
-            'message' => 'Trending items retrieved successfully'
+            'success'    => true,
+            'data'       => ItemResource::collection($items),
+            'message'    => 'Trending items retrieved successfully',
+            'pagination' => [
+                'current_page' => $items->currentPage(),
+                'last_page'    => $items->lastPage(),
+                'per_page'     => $items->perPage(),
+                'total'        => $items->total(),
+                'has_more'     => $items->hasMorePages(),
+            ],
         ]);
     }
 
     /**
      * Get featured items for home screen
+     * Featured items are promoted only — no pagination needed
      */
     public function featured(Request $request): JsonResponse
     {
         $limit = $request->get('limit', 6);
+        $page  = $request->get('page', 1);
 
-        $items = Cache::remember("home_featured_items_{$limit}", 600, function () use ($limit) {
+        $items = Cache::remember("home_featured_items_{$limit}_page_{$page}", 600, function () use ($limit, $page) {
             return Item::active()
                 ->promoted()
                 ->with(['user:id,name,profile_image', 'primaryImage'])
@@ -153,20 +168,27 @@ class HomeController extends Controller
                     'location',
                     'is_promoted',
                     'promoted_until',
-                    'created_at'
+                    'created_at',
                 ])
                 ->orderByDesc('promoted_until')
                 ->orderByDesc('created_at')
-                ->limit($limit)
-                ->get();
+                ->paginate($limit);
         });
 
         return response()->json([
-            'success' => true,
-            'data' => ItemResource::collection($items),
-            'message' => 'Featured items retrieved successfully'
+            'success'    => true,
+            'data'       => ItemResource::collection($items),
+            'message'    => 'Featured items retrieved successfully',
+            'pagination' => [
+                'current_page' => $items->currentPage(),
+                'last_page'    => $items->lastPage(),
+                'per_page'     => $items->perPage(),
+                'total'        => $items->total(),
+                'has_more'     => $items->hasMorePages(),
+            ],
         ]);
     }
+
 
     /**
      * Get category statistics
@@ -179,32 +201,30 @@ class HomeController extends Controller
                 ->orderBy('sort_order')
                 ->orderBy('name')
                 ->get(['id', 'name', 'slug', 'icon', 'items_count'])
-                ->map(function ($category) {
-                    return [
-                        'id' => $category->id,
-                        'name' => $category->name,
-                        'slug' => $category->slug,
-                        'icon' => $category->icon,
-                        'items_count' => $category->items_count,
-                        'active_items_count' => $category->items()->active()->count(),
-                    ];
-                });
+                ->map(fn($category) => [
+                    'id'                 => $category->id,
+                    'name'               => $category->name,
+                    'slug'               => $category->slug,
+                    'icon'               => $category->icon,
+                    'items_count'        => $category->items_count,
+                    'active_items_count' => $category->items()->active()->count(),
+                ]);
         });
 
         $totalStats = [
-            'total_items' => Item::active()->count(),
+            'total_items'      => Item::active()->count(),
             'total_categories' => Category::active()->count(),
-            'items_today' => Item::active()->whereDate('created_at', today())->count(),
-            'promoted_items' => Item::promoted()->count(),
+            'items_today'      => Item::active()->whereDate('created_at', today())->count(),
+            'promoted_items'   => Item::promoted()->count(),
         ];
 
         return response()->json([
             'success' => true,
-            'data' => [
+            'data'    => [
                 'categories' => $stats,
-                'totals' => $totalStats,
+                'totals'     => $totalStats,
             ],
-            'message' => 'Category statistics retrieved successfully'
+            'message' => 'Category statistics retrieved successfully',
         ]);
     }
 }
