@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\Builder;
+
 
 class Item extends Model
 {
@@ -15,15 +17,15 @@ class Item extends Model
         'user_id',
         'title',
         'description',
-        'category_name',        
+        'category_name',
         'category_id',
-        'sub_category_id',     
+        'sub_category_id',
         'child_sub_category_id',
         'price',
         'condition',
         'status',
         'location_id',
-        'location',            
+        'location',
         'contact_method',
         'tags',
         'is_sold',
@@ -75,6 +77,50 @@ class Item extends Model
 
         return null;
     }
+
+    /**
+     * Filter by city name, state, or location string with fallback hierarchy.
+     * Returns query scoped to the most local level that has results.
+     */
+    public function scopeByLocationHierarchy(Builder $query, ?string $city, ?string $state): Builder
+    {
+        if (!$city && !$state) {
+            return $query;
+        }
+
+        $cityLower  = strtolower($city  ?? '');
+        $stateLower = strtolower($state ?? '');
+
+        $cityFilter = function ($q) use ($cityLower) {
+            $q->whereHas('location', function ($lq) use ($cityLower) {
+                $lq->whereHas('city', function ($cq) use ($cityLower) {
+                    $cq->whereRaw('LOWER(name) LIKE ?', ["%{$cityLower}%"]);
+                });
+            })->orWhereRaw('LOWER(location) LIKE ?', ["%{$cityLower}%"]);
+        };
+
+        $stateFilter = function ($q) use ($stateLower) {
+            $q->whereHas('location', function ($lq) use ($stateLower) {
+                $lq->whereHas('city', function ($cq) use ($stateLower) {
+                    $cq->whereRaw('LOWER(state) LIKE ?', ["%{$stateLower}%"]);
+                });
+            })->orWhereRaw('LOWER(location) LIKE ?', ["%{$stateLower}%"]);
+        };
+
+        // Level 1: city
+        if ($city && (clone $query)->where($cityFilter)->exists()) {
+            return $query->where($cityFilter);
+        }
+
+        // Level 2: state
+        if ($state && (clone $query)->where($stateFilter)->exists()) {
+            return $query->where($stateFilter);
+        }
+
+        // Level 3: nationwide fallback
+        return $query;
+    }
+
 
     // Relationships
     public function user(): BelongsTo
