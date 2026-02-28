@@ -19,6 +19,9 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use App\Models\Order;
+use App\Models\Transaction;
 
 class ItemController extends Controller
 {
@@ -955,6 +958,222 @@ class ItemController extends Controller
                 'success' => false,
                 'message' => 'Failed to unarchive item',
                 'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+
+    /**
+     * Get items purchased by the authenticated user
+     * GET /items/my-purchases
+     */
+    public function getMyPurchases(Request $request): JsonResponse
+    {
+        try {
+            $userId = Auth::id();
+            $limit  = $request->query('limit', 20);
+            $status = $request->query('status'); // optional filter: completed, pending, cancelled
+
+            // ─── Approach 1: via Orders table (preferred if you have it) ─────────────
+            // Check if the orders table exists and has a buyer_id column
+            if (Schema::hasTable('orders')) {
+
+                $query = Order::with([
+                    'item.images',
+                    'item.category',
+                    'item.user:id,name,profile_image,university',  // seller info
+                ])
+                    ->where('buyer_id', $userId)
+                    ->latest();
+
+                // Optional status filter
+                if ($status) {
+                    $query->where('status', $status);
+                }
+
+                $orders = $query->paginate($limit);
+
+                $data = $orders->getCollection()->map(function ($order) {
+                    $item   = $order->item;
+                    $seller = $item?->user;
+
+                    return [
+                        'id'         => $order->id,
+                        'order_id'   => $order->id,
+                        'status'     => $order->status ?? 'completed',
+                        'amount'     => $order->amount ?? $item?->price,
+                        'created_at' => $order->created_at,
+                        'updated_at' => $order->updated_at,
+
+                        // Item details
+                        'item' => $item ? [
+                            'id'          => $item->id,
+                            'title'       => $item->title,
+                            'description' => $item->description,
+                            'price'       => $item->price,
+                            'condition'   => $item->condition,
+                            'status'      => $item->status,
+                            'images'      => $item->images ?? [],
+                        ] : null,
+
+                        // Seller details
+                        'seller' => $seller ? [
+                            'id'            => $seller->id,
+                            'name'          => $seller->name,
+                            'profile_image' => $seller->profile_image,
+                            'university'    => $seller->university ?? '',
+                        ] : null,
+                    ];
+                });
+
+                return response()->json([
+                    'success' => true,
+                    'data'    => $data,
+                    'pagination' => [
+                        'current_page' => $orders->currentPage(),
+                        'last_page'    => $orders->lastPage(),
+                        'per_page'     => $orders->perPage(),
+                        'total'        => $orders->total(),
+                        'has_more'     => $orders->hasMorePages(),
+                    ],
+                ]);
+            }
+
+            // ─── Approach 2: fallback via Items table (buyer_id column) ─────────────
+            if (Schema::hasColumn('items', 'buyer_id')) {
+
+                $query = Item::with([
+                    'images',
+                    'category:id,name',
+                    'user:id,name,profile_image,university', 
+                ])
+                    ->where('buyer_id', $userId)
+                    ->where('is_sold', true)
+                    ->latest('sold_at');
+
+                if ($status === 'completed') {
+                    $query->where('status', 'sold');
+                }
+
+                $items = $query->paginate($limit);
+
+                $data = $items->getCollection()->map(function ($item) {
+                    return [
+                        'id'         => $item->id,
+                        'order_id'   => $item->id,
+                        'status'     => 'completed',
+                        'amount'     => $item->price,
+                        'created_at' => $item->sold_at ?? $item->created_at,
+                        'updated_at' => $item->updated_at,
+
+                        'item' => [
+                            'id'          => $item->id,
+                            'title'       => $item->title,
+                            'description' => $item->description,
+                            'price'       => $item->price,
+                            'condition'   => $item->condition,
+                            'status'      => $item->status,
+                            'images'      => $item->images ?? [],
+                        ],
+
+                        'seller' => $item->user ? [
+                            'id'            => $item->user->id,
+                            'name'          => $item->user->name,
+                            'profile_image' => $item->user->profile_image,
+                            'university'    => $item->user->university ?? '',
+                        ] : null,
+                    ];
+                });
+
+                return response()->json([
+                    'success' => true,
+                    'data'    => $data,
+                    'pagination' => [
+                        'current_page' => $items->currentPage(),
+                        'last_page'    => $items->lastPage(),
+                        'per_page'     => $items->perPage(),
+                        'total'        => $items->total(),
+                        'has_more'     => $items->hasMorePages(),
+                    ],
+                ]);
+            }
+
+            // ─── Approach 3: via Transactions table ─────────────────────────────────
+            if (Schema::hasTable('transactions')) {
+
+                $query = Transaction::with([
+                    'item.images',
+                    'item.category:id,name',
+                    'item.user:id,name,profile_image,university',
+                ])
+                    ->where('buyer_id', $userId)
+                    ->latest();
+
+                if ($status) {
+                    $query->where('status', $status);
+                }
+
+                $transactions = $query->paginate($limit);
+
+                $data = $transactions->getCollection()->map(function ($tx) {
+                    $item   = $tx->item;
+                    $seller = $item?->user;
+
+                    return [
+                        'id'         => $tx->id,
+                        'order_id'   => $tx->id,
+                        'status'     => $tx->status ?? 'completed',
+                        'amount'     => $tx->amount ?? $item?->price,
+                        'created_at' => $tx->created_at,
+                        'updated_at' => $tx->updated_at,
+
+                        'item' => $item ? [
+                            'id'          => $item->id,
+                            'title'       => $item->title,
+                            'price'       => $item->price,
+                            'condition'   => $item->condition,
+                            'status'      => $item->status,
+                            'images'      => $item->images ?? [],
+                        ] : null,
+
+                        'seller' => $seller ? [
+                            'id'            => $seller->id,
+                            'name'          => $seller->name,
+                            'profile_image' => $seller->profile_image,
+                            'university'    => $seller->university ?? '',
+                        ] : null,
+                    ];
+                });
+
+                return response()->json([
+                    'success' => true,
+                    'data'    => $data,
+                    'pagination' => [
+                        'current_page' => $transactions->currentPage(),
+                        'last_page'    => $transactions->lastPage(),
+                        'per_page'     => $transactions->perPage(),
+                        'total'        => $transactions->total(),
+                        'has_more'     => $transactions->hasMorePages(),
+                    ],
+                ]);
+            }
+
+            // ─── No purchase tracking found ─────────────────────────────────────────
+            return response()->json([
+                'success' => true,
+                'data'    => [],
+                'message' => 'No purchase records found',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('getMyPurchases error: ' . $e->getMessage(), [
+                'user_id' => Auth::id(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch purchases',
+                'error'   => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
