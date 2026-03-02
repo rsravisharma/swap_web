@@ -97,7 +97,15 @@ class User extends Authenticatable implements MustVerifyEmail
         'is_phone_verified',
         'is_email_verified',
         'profile_completion_percentage',
+        'is_social_login',
     ];
+
+    public function isSocialLogin(): Attribute
+    {
+        return Attribute::make(
+            get: fn() => !is_null($this->google_id) || !is_null($this->facebook_id)
+        );
+    }
 
     public function referrer()
     {
@@ -870,5 +878,4 @@ class User extends Authenticatable implements MustVerifyEmail
             ->where('date', '>=', now()->subDays($days))
             ->avg('engagement_score') ?? 0;
     }
-
 }

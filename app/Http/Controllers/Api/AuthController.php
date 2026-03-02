@@ -1081,44 +1081,36 @@ class AuthController extends Controller
      */
     public function updatePassword(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'current_password' => 'required|string',
-            'new_password' => 'required|string|min:8|confirmed',
-        ]);
+        $user = Auth::user();
+        $isSocialLogin = !is_null($user->google_id) || !is_null($user->facebook_id);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+        $rules = [
+            'new_password' => 'required|min:6|confirmed',
+        ];
+
+        // Only require current_password for non-social users
+        if (!$isSocialLogin) {
+            $rules['current_password'] = 'required';
         }
 
-        try {
-            $user = $request->user();
+        $request->validate($rules);
 
+        // Verify current password only for non-social users
+        if (!$isSocialLogin) {
             if (!Hash::check($request->current_password, $user->password)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Current password is incorrect'
+                    'message' => 'Current password is incorrect',
                 ], 401);
             }
-
-            $user->update([
-                'password' => Hash::make($request->new_password)
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Password updated successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update password',
-                'error' => $e->getMessage()
-            ], 500);
         }
+
+        $user->update(['password' => Hash::make($request->new_password)]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password updated successfully',
+        ]);
     }
 
     /**

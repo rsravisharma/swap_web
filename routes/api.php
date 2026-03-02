@@ -184,7 +184,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::prefix('auth')->name('auth.')->group(function () {
         Route::post('logout', [AuthController::class, 'logout'])->name('logout');
-        Route::put('password', [AuthController::class, 'updatePassword'])->name('password.update');
+        Route::put('update-password', [AuthController::class, 'updatePassword'])->name('update-password');
         Route::post('verify-email', [AuthController::class, 'verifyEmail'])->name('verify-email');
         Route::get('debug/auth', [AuthController::class, 'checkAuth'])->name('debug.auth');
 
