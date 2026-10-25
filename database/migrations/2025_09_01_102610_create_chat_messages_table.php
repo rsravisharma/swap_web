@@ -34,7 +34,9 @@ return new class extends Migration
             $table->index(['session_id', 'created_at', 'status'], 'chat_messages_sync_index');
             $table->index(['created_at', 'is_deleted'], 'chat_messages_cleanup_index');
             $table->index(['session_id', 'sender_id', 'status'], 'chat_messages_user_status_index');
-            $table->fullText('message'); 
+            if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+                $table->fullText('message');
+            } 
         });
     }
 

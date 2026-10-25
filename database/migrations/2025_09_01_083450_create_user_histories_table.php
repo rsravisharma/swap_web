@@ -28,7 +28,9 @@ return new class extends Migration
             $table->index(['user_id', 'type']);
             $table->index(['user_id', 'category']);
             $table->index(['related_id', 'related_type']);
-            $table->fullText(['title', 'description', 'action']);
+            if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+                $table->fullText(['title', 'description', 'action']);
+            }
         });
     }
 
